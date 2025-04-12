@@ -3,6 +3,37 @@ alias Rvrb.GenreServer, as: GenreServer
 defmodule Rvrb.WebSocket do
   use Fresh
 
+  def dope() do
+    vote_message =
+      Jason.encode!(%{
+        jsonrpc: "2.0",
+        method: "vote",
+        params: %{
+          dope: true
+        }
+      })
+
+    Fresh.send(Connection, {:text, vote_message})
+  end
+
+  def send_message(message) do
+    data = Jason.encode!(message)
+    IO.puts("OUT: #{data}")
+    Fresh.send(Connection, {:text, data})
+  end
+
+  def chat(message) do
+    pushMessage_message =
+      Jason.encode!(%{
+        method: "pushMessage",
+        params: %{
+          payload: message
+        }
+      })
+
+    send_message(pushMessage_message)
+  end
+
   def start_link(bot_key) when is_binary(bot_key) do
     Fresh.start_link(
       "wss://app.rvrb.one/ws-bot?apiKey=#{bot_key}",
@@ -142,7 +173,10 @@ defmodule Rvrb.WebSocket do
     state = %{state | :autodope => !state[:autodope]}
 
     if state[:autodope] do
+      chat("Autodope turned on")
       dope()
+    else
+      chat("Autodope turned off")
     end
 
     {:ok, state}
@@ -194,6 +228,16 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
+  def handle_message(
+        %{"method" => "playChannelTrack", "params" => params},
+        state
+      ) do
+    track = params["track"]
+    IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
+
+    {:ok, state}
+  end
+
   def handle_message(%{"method" => "updateChannelUserStatus", "params" => params}, state) do
     IO.puts("updateChannelUserStatus! #{inspect(params)}")
     {:ok, state}
@@ -214,23 +258,5 @@ defmodule Rvrb.WebSocket do
     message = Jason.decode!(data)
 
     handle_message(message, state)
-  end
-
-  def dope() do
-    vote_message =
-      Jason.encode!(%{
-        jsonrpc: "2.0",
-        method: "vote",
-        params: %{
-          dope: true
-        }
-      })
-
-    Fresh.send(Connection, {:text, vote_message})
-  end
-
-  def send_message(message) do
-    data = Jason.encode!(message)
-    Fresh.send(Connection, {:text, data})
   end
 end
