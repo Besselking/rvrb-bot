@@ -7,7 +7,9 @@ defmodule Rvrb.WebSocket do
     Fresh.start_link(
       "wss://app.rvrb.one/ws-bot?apiKey=#{bot_key}",
       Rvrb.WebSocket,
-      %{},
+      %{
+        autodope: false
+      },
       name: {:local, Connection}
     )
   end
@@ -40,6 +42,8 @@ defmodule Rvrb.WebSocket do
 
   def handle_message(%{"method" => "ready", "params" => params}, state) do
     IO.puts("ready! #{inspect(params)}")
+
+    state = Map.put(state, :channelId, params["channelId"])
 
     join_message =
       Jason.encode!(%{
@@ -94,9 +98,82 @@ defmodule Rvrb.WebSocket do
     {:reply, {:text, pushMessage_message}, state}
   end
 
+  def handle_message(
+        %{
+          "method" => "pushChannelMessage",
+          "params" => %{"payload" => "\\delete", "syncTime" => synctime}
+        },
+        state
+      ) do
+    IO.puts("command delete!")
+
+    last_deletion = Map.get(state, :last_deletion, nil)
+
+    to_delete =
+      if last_deletion != nil do
+        [last_deletion, synctime]
+      else
+        [synctime]
+      end
+
+    pushMessage_message =
+      Jason.encode!(%{
+        method: "deleteChat",
+        params: %{
+          channelId: state[:channelId],
+          syncTime: to_delete
+        }
+      })
+
+    IO.puts("OUT: #{pushMessage_message}")
+
+    {:reply, {:text, pushMessage_message}, state}
+  end
+
+  def handle_message(
+        %{
+          "method" => "pushChannelMessage",
+          "params" => %{"payload" => "\\autodope"}
+        },
+        state
+      ) do
+    IO.puts("command autodope!")
+
+    state = %{state | :autodope => !state[:autodope]}
+
+    if state[:autodope] do
+      dope()
+    end
+
+    {:ok, state}
+  end
+
+  def handle_message(
+        %{
+          "method" => "pushChannelMessage",
+          "params" => %{
+            "type" => "alert",
+            "payload" => payload,
+            "syncTime" => synctime
+          }
+        },
+        state
+      ) do
+    IO.puts("alert! #{inspect(payload)} #{inspect(synctime)}")
+
+    state =
+      if String.ends_with?(payload, "chat messages were deleted by bot_1728728144538") do
+        Map.put(state, :last_deletion, synctime)
+      else
+        state
+      end
+
+    {:ok, state}
+  end
+
   def handle_message(%{"method" => "pushChannelMessage", "params" => params}, state) do
-    # IO.puts("pushChannelMessage! #{inspect(params)}")
-    IO.puts("pushChannelMessage! #{inspect(params["userName"])}: #{inspect(params["payload"])}")
+    IO.puts("pushChannelMessage! #{inspect(params)}")
+    # IO.puts("pushChannelMessage! #{inspect(params["userName"])}: #{inspect(params["payload"])}")
     {:ok, state}
   end
 
@@ -105,9 +182,15 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
-  def handle_message(%{"method" => "playChannelTrack", "params" => params}, state) do
+  def handle_message(
+        %{"method" => "playChannelTrack", "params" => params},
+        %{autodope: true} = state
+      ) do
     track = params["track"]
     IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
+
+    dope()
+
     {:ok, state}
   end
 
@@ -131,5 +214,23 @@ defmodule Rvrb.WebSocket do
     message = Jason.decode!(data)
 
     handle_message(message, state)
+  end
+
+  def dope() do
+    vote_message =
+      Jason.encode!(%{
+        jsonrpc: "2.0",
+        method: "vote",
+        params: %{
+          dope: true
+        }
+      })
+
+    Fresh.send(Connection, {:text, vote_message})
+  end
+
+  def send_message(message) do
+    data = Jason.encode!(message)
+    Fresh.send(Connection, {:text, data})
   end
 end
