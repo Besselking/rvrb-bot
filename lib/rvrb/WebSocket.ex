@@ -23,15 +23,12 @@ defmodule Rvrb.WebSocket do
   end
 
   def chat(message) do
-    pushMessage_message =
-      Jason.encode!(%{
-        method: "pushMessage",
-        params: %{
-          payload: message
-        }
-      })
-
-    send_message(pushMessage_message)
+    send_message(%{
+      method: "pushMessage",
+      params: %{
+        payload: message
+      }
+    })
   end
 
   def start_link(bot_key) when is_binary(bot_key) do
