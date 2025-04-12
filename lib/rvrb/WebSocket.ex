@@ -129,6 +129,29 @@ defmodule Rvrb.WebSocket do
   def handle_message(
         %{
           "method" => "pushChannelMessage",
+          "params" => %{"payload" => "\\qg " <> keyword, "syncTime" => synctime}
+        },
+        state
+      ) do
+    IO.puts("command qg! #{keyword}")
+
+    pushMessage_message =
+      Jason.encode!(%{
+        method: "pushMessage",
+        params: %{
+          payload: GenreServer.get_genre(keyword),
+          replyTo: synctime
+        }
+      })
+
+    IO.puts("OUT: #{pushMessage_message}")
+
+    {:reply, {:text, pushMessage_message}, state}
+  end
+
+  def handle_message(
+        %{
+          "method" => "pushChannelMessage",
           "params" => %{"payload" => "\\delete", "syncTime" => synctime}
         },
         state

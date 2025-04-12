@@ -9,6 +9,10 @@ defmodule Rvrb.GenreServer do
     GenServer.call(__MODULE__, :get_genre)
   end
 
+  def get_genre(keyword) do
+    GenServer.call(__MODULE__, {:get_genre, keyword})
+  end
+
   ## server
 
   @impl true
@@ -24,5 +28,15 @@ defmodule Rvrb.GenreServer do
   @impl true
   def handle_call(:get_genre, _from, genre_list) do
     {:reply, Enum.random(genre_list), genre_list}
+  end
+
+  @impl true
+  def handle_call({:get_genre, keyword}, _from, genre_list) do
+
+    sub_list = Enum.filter(genre_list, fn(genre) ->
+      String.contains?(genre, keyword)
+    end)
+
+    {:reply, Enum.random(sub_list), genre_list}
   end
 end
