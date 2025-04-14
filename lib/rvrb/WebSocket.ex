@@ -116,8 +116,7 @@ defmodule Rvrb.WebSocket do
       Jason.encode!(%{
         method: "pushMessage",
         params: %{
-          payload: GenreServer.get_genre(),
-          replyTo: synctime
+          payload: GenreServer.get_genre()
         }
       })
 
@@ -139,8 +138,7 @@ defmodule Rvrb.WebSocket do
       Jason.encode!(%{
         method: "pushMessage",
         params: %{
-          payload: GenreServer.get_genre(keyword),
-          replyTo: synctime
+          payload: GenreServer.get_genre(keyword)
         }
       })
 
