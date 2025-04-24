@@ -93,7 +93,7 @@ defmodule Rvrb.WebSocket do
     :reconnect
   end
 
-  def handle_pushChannelMessage(%{"payload" => "\\qg "}, state) do
+  def handle_pushChannelMessage(%{"payload" => "\\qg"}, state) do
     IO.puts("command qg!")
 
     chat(GenreServer.get_genre())
