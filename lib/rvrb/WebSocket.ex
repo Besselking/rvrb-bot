@@ -219,14 +219,14 @@ defmodule Rvrb.WebSocket do
 
     [_current_dj | djs] = state[:djs]
 
-    doped = if Enum.empty?(djs -- dopes) and not state[:doped] do
+    doped = if not Enum.empty?(djs) and Enum.empty?(djs -- dopes) and not state[:doped] do
       dope()
       true
     else
       state[:starred]
     end
 
-    starred = if Enum.empty?(djs -- stars) and not state[:starred] do
+    starred = if not Enum.empty?(djs) and Enum.empty?(djs -- stars) and not state[:starred] do
       star()
       true
     else
