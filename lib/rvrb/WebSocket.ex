@@ -283,6 +283,13 @@ defmodule Rvrb.WebSocket do
     current_djs = state[:djs]
     djs = params["djs"]
 
+    case djs do
+      [current_dj_id | _] ->
+        current_dj = Rvrb.User.get(current_dj_id)
+        Rvrb.User.update_last_djed(current_dj)
+      [] -> nil
+    end
+
     #contains duplicates
     all_djs = current_djs ++ djs
     users = Rvrb.User.get_names(all_djs)

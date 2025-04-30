@@ -9,6 +9,7 @@ defmodule Rvrb.User do
     field(:display_name, :string)
     field(:country, :string)
     field(:created_date, :naive_datetime)
+    field(:last_djed, :naive_datetime)
   end
 
   def changeset(person, params \\ %{}) do
@@ -18,10 +19,22 @@ defmodule Rvrb.User do
       :user_name,
       :display_name,
       :country,
-      :created_date
+      :created_date,
+      :last_djed
     ])
     |> Ecto.Changeset.unique_constraint(:rvrb_id)
     |> Ecto.Changeset.validate_required([:rvrb_id, :user_name, :created_date])
+  end
+
+  def get(id) do
+    Rvrb.Repo.get_by(Rvrb.User, rvrb_id: id)
+  end
+
+  def update_last_djed(user) do
+    update_dj_timestamp = changeset(user, %{
+      last_djed: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+    })
+    Rvrb.Repo.update(update_dj_timestamp)
   end
 
   def update_users([]), do: []
