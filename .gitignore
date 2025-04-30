@@ -23,3 +23,6 @@ rvrb-*.tar
 /tmp/
 
 /.elixir_ls/
+/.lexical/
+
+/config/*.secret.exs

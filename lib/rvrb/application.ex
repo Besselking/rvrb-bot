@@ -10,8 +10,9 @@ defmodule Rvrb.Application do
     children = [
       # Starts a worker by calling: Rvrb.Worker.start_link(arg)
       # {Rvrb.Worker, arg}
-      {Rvrb.WebSocket, System.get_env("RVRB_BOT_KEY")},
-      {Rvrb.GenreServer, "./genres.txt"}
+      {Rvrb.WebSocket, Application.fetch_env!(:rvrb, :bot_token)},
+      {Rvrb.GenreServer, "./genres.txt"},
+      Rvrb.Repo
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

@@ -57,7 +57,6 @@ defmodule Rvrb.WebSocket do
       Rvrb.WebSocket,
       %{
         autodope: false,
-        users: %{},
         djs: [],
         doped: false,
         starred: false,
@@ -128,9 +127,10 @@ defmodule Rvrb.WebSocket do
     IO.puts("command djs!")
 
     current_djs = state[:djs]
+    dj_names = Rvrb.User.get_names(current_djs)
 
     djs = for dj <- current_djs do
-      state[:users][dj]["displayName"]
+      Rvrb.User.get_name(dj_names, dj)
     end
 
     chat(Enum.join(djs, "<br/>"))
@@ -200,13 +200,7 @@ defmodule Rvrb.WebSocket do
   def handle_message(%{"method" => "updateChannelUsers", "params" => params}, state) do
     IO.puts("updateChannelUsers! #{params["type"]}")
 
-    users =
-      params["users"]
-      |> Enum.into(%{}, fn user ->
-        {user["_id"], user}
-      end)
-
-    state = %{state | users: users}
+    Rvrb.User.update_users(params["users"])
 
     {:ok, state}
   end
@@ -233,8 +227,11 @@ defmodule Rvrb.WebSocket do
       state[:starred]
     end
 
+    vote_user_ids = Map.keys(voting)
+    voted_users = Rvrb.User.get_names(vote_user_ids)
+
     for {userid, votes} <- voting do
-      displayname = state[:users][userid]["displayName"]
+      name = Rvrb.User.get_name(voted_users, userid)
 
       vote =
         for {vote, count} <- votes, count > 0 do
@@ -247,7 +244,7 @@ defmodule Rvrb.WebSocket do
           end
         end
 
-      IO.puts("#{displayname}: \t#{vote}")
+      IO.puts("#{name}: \t#{vote}")
     end
 
     {:ok, %{state | doped: doped, starred: starred}}
@@ -286,16 +283,19 @@ defmodule Rvrb.WebSocket do
     current_djs = state[:djs]
     djs = params["djs"]
 
+    #contains duplicates
+    all_djs = current_djs ++ djs
+    users = Rvrb.User.get_names(all_djs)
+
     djs_left = current_djs -- djs
     djs_joined = djs -- current_djs
 
     if state[:debug_djs] do
-      users = state[:users]
       for dj <- djs_left do
-        IO.puts("\t #{users[dj]["displayName"]} left")
+        IO.puts("\t #{Rvrb.User.get_name(users, dj)} left")
       end
       for dj <- djs_joined do
-        IO.puts("\t #{users[dj]["displayName"]} joined")
+        IO.puts("\t #{Rvrb.User.get_name(users, dj)} joined")
       end
     end
 
