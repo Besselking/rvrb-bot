@@ -3,7 +3,7 @@ defmodule Rvrb.Repo.Migrations.CreateUsers do
 
   def change do
     create table(:users) do
-      add :rvrb_id, :string, :unique
+      add :rvrb_id, :string
       add :user_name, :string
       add :display_name, :string
       add :country, :string
