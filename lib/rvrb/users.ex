@@ -31,6 +31,9 @@ defmodule Rvrb.User do
   end
 
   def update_last_djed(user) do
+    if user == nil do
+      nil
+    end
     update_dj_timestamp = changeset(user, %{
       last_djed: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
     })
@@ -65,10 +68,10 @@ defmodule Rvrb.User do
     Rvrb.Repo.all(from t in Rvrb.User, where: t.rvrb_id in ^ids)
   end
 
-  def get_names(ids) do
+  def get_users(ids) do
     query = Ecto.Query.from u in Rvrb.User,
       where: u.rvrb_id in ^ids,
-      select: {u.rvrb_id, {u.display_name, u.user_name}}
+      select: {u.rvrb_id, {u.display_name, u.user_name, u.last_djed, u.created_date}}
 
       Rvrb.Repo.all(query)
       |> Enum.into(%{})
@@ -77,9 +80,25 @@ defmodule Rvrb.User do
   def get_name(_, nil), do: nil
   def get_name(map, id) do
     case map[id] do
-      {"", user_name} -> user_name
-      {nil, user_name} -> user_name
-      {display_name, _} -> display_name
+      {"", user_name, _, _} -> user_name
+      {nil, user_name, _, _} -> user_name
+      {display_name, _, _, _} -> display_name
+      nil -> id
+    end
+  end
+
+  def get_last_djed(_, nil), do: nil
+  def get_last_djed(map, id) do
+    case map[id] do
+      {_, _, last_djed, _} -> last_djed
+      nil -> id
+    end
+  end
+
+  def get_created_date(_, nil), do: nil
+  def get_created_date(map, id) do
+    case map[id] do
+      {_, _, _, created_date} -> created_date
       nil -> id
     end
   end

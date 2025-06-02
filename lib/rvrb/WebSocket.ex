@@ -127,13 +127,32 @@ defmodule Rvrb.WebSocket do
     IO.puts("command djs!")
 
     current_djs = state[:djs]
-    dj_names = Rvrb.User.get_names(current_djs)
+    dj_map = Rvrb.User.get_users(current_djs)
 
     djs = for dj <- current_djs do
-      Rvrb.User.get_name(dj_names, dj)
+      { Rvrb.User.get_name(dj_map, dj), Rvrb.User.get_last_djed(dj_map, dj), Rvrb.User.get_created_date(dj_map, dj)}
     end
 
-    chat(Enum.join(djs, "<br/>"))
+    use Timex
+
+    rows = for {name, last_djed, created_date} <- djs do
+      relative_date = if last_djed != nil do
+        Timex.from_now(last_djed)
+      else
+        ""
+      end
+
+      "<tr><td>#{name}</td><td>#{relative_date}</td><td>#{Timex.from_now(created_date)}</td></tr>"
+    end
+
+    table = "<table class=\"chat-table striped\">
+      <thead>
+        <tr><th>Name</th><th>Last DJed</th><th>Member Since</th></tr>
+      </thead>
+      <tbody>#{Enum.join(rows)}</tbody>
+    </table>"
+
+    chat(table)
 
     {:ok, state}
   end
@@ -149,6 +168,17 @@ defmodule Rvrb.WebSocket do
       else
         state
       end
+
+    {:ok, state}
+  end
+
+  def handle_pushChannelMessage(%{"payload" => "\\whisperback"} = params, state) do
+    IO.puts("command whisperback!")
+    %{"userId" => userId} = params
+
+    user = Rvrb.User.get(userId)
+
+    chat("/w @#{user.display_name} hi there!")
 
     {:ok, state}
   end
@@ -228,7 +258,7 @@ defmodule Rvrb.WebSocket do
     end
 
     vote_user_ids = Map.keys(voting)
-    voted_users = Rvrb.User.get_names(vote_user_ids)
+    voted_users = Rvrb.User.get_users(vote_user_ids)
 
     for {userid, votes} <- voting do
       name = Rvrb.User.get_name(voted_users, userid)
@@ -268,6 +298,7 @@ defmodule Rvrb.WebSocket do
       ) do
     track = params["track"]
     IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
+    # IO.puts("playChannelTrack! #{inspect(track)}")
 
     {:ok, %{state | doped: false, starred: false}}
   end
@@ -292,7 +323,7 @@ defmodule Rvrb.WebSocket do
 
     #contains duplicates
     all_djs = current_djs ++ djs
-    users = Rvrb.User.get_names(all_djs)
+    users = Rvrb.User.get_users(all_djs)
 
     djs_left = current_djs -- djs
     djs_joined = djs -- current_djs

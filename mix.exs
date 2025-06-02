@@ -14,8 +14,8 @@ defmodule Rvrb.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
-      mod: {Rvrb.Application, []}
+      extra_applications: [:logger, :timex],
+      mod: {Rvrb.Application, []},
     ]
   end
 
@@ -25,7 +25,8 @@ defmodule Rvrb.MixProject do
       {:fresh, "~> 0.4.4"},
       {:jason, "~> 1.4"},
       {:ecto_sql, "~> 3.12"},
-      {:postgrex, "~> 0.20.0"}
+      {:postgrex, "~> 0.20.0"},
+      {:timex, "~> 3.7.11"}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]
