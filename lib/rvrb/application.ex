@@ -12,6 +12,10 @@ defmodule Rvrb.Application do
       # {Rvrb.Worker, arg}
       {Rvrb.WebSocket, Application.fetch_env!(:rvrb, :bot_token)},
       {Rvrb.GenreServer, "./genres.txt"},
+      %{
+        id: Rvrb.SpotifyServer,
+        start: {Rvrb.SpotifyServer, :start_link, []}
+      },
       Rvrb.Repo
     ]
 
