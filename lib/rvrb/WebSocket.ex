@@ -201,7 +201,7 @@ defmodule Rvrb.WebSocket do
 
   def handle_pushChannelMessage(%{"payload" => "\\spin"}, state) do
     track = state.current_track
-    album_art = List.first(track["album"]["images"])["url"]
+    album_art = hd(track["album"]["images"])["url"]
     chat("<img class=\"ui image circular spin\" src=\"#{album_art}\"/>")
     {:ok, state}
   end
