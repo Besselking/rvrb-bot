@@ -415,7 +415,7 @@ defmodule Rvrb.WebSocket do
     IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
     # IO.puts("playChannelTrack! #{inspect(track)}")
 
-    {:ok, %{state | doped: false, starred: false}}
+    {:ok, %{state | doped: false, starred: false, current_track: track}}
   end
 
   def handle_message(%{"method" => "updateChannelUserStatus"}, state) do
