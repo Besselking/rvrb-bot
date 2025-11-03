@@ -97,6 +97,7 @@ defmodule Rvrb.WebSocket do
         doped: false,
         starred: false,
         debug_djs: true,
+        current_track: %{},
         queue: []
       },
       name: {:local, Connection}
@@ -195,6 +196,13 @@ defmodule Rvrb.WebSocket do
 
     chat(table)
 
+    {:ok, state}
+  end
+
+  def handle_pushChannelMessage(%{"payload" => "\\spin"}, state) do
+    track = state.current_track
+    album_art = List.first(track["album"]["images"])["url"]
+    chat("<img class=\"ui image circular spin\" src=\"#{album_art}\"/>")
     {:ok, state}
   end
 
@@ -394,10 +402,9 @@ defmodule Rvrb.WebSocket do
       ) do
     track = params["track"]
     IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
-
     dope()
 
-    {:ok, state}
+    {:ok, %{state | current_track: track}}
   end
 
   def handle_message(
