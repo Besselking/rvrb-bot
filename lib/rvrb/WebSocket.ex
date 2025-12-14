@@ -309,7 +309,7 @@ defmodule Rvrb.WebSocket do
   end
 
   def handle_message(%{"method" => "keepAwake", "params" => params}, state) do
-    IO.puts("keepAwake! #{inspect(params)}")
+    # IO.puts("keepAwake! #{inspect(params)}")
 
     state = Map.put(state, :latency, params["latency"])
 
@@ -321,7 +321,7 @@ defmodule Rvrb.WebSocket do
         }
       })
 
-    IO.puts("OUT: #{keepAwake_message}")
+    # IO.puts("OUT: #{keepAwake_message}")
     {:reply, {:text, keepAwake_message}, state}
   end
 
