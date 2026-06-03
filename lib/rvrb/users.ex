@@ -10,6 +10,7 @@ defmodule Rvrb.User do
     field(:country, :string)
     field(:created_date, :naive_datetime)
     field(:last_djed, :naive_datetime)
+    field(:received_skip, :boolean)
   end
 
   def changeset(person, params \\ %{}) do
@@ -20,7 +21,8 @@ defmodule Rvrb.User do
       :display_name,
       :country,
       :created_date,
-      :last_djed
+      :last_djed,
+      :received_skip
     ])
     |> Ecto.Changeset.unique_constraint(:rvrb_id)
     |> Ecto.Changeset.validate_required([:rvrb_id, :user_name, :created_date])
@@ -34,29 +36,51 @@ defmodule Rvrb.User do
     if user == nil do
       nil
     end
-    update_dj_timestamp = changeset(user, %{
-      last_djed: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-    })
+
+    update_dj_timestamp =
+      changeset(user, %{
+        last_djed: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+      })
+
     Rvrb.Repo.update(update_dj_timestamp)
   end
 
+  def update_received_skip(user) do
+    if user == nil do
+      nil
+    end
+
+    update_user_received_skip =
+      changeset(user, %{
+        received_skip: true
+      })
+
+    Rvrb.Repo.update(update_user_received_skip)
+  end
+
   def update_users([]), do: []
+
   def update_users(users) do
-    repo_users = Enum.map(users, &%{
-      rvrb_id: &1["_id"],
-      user_name: &1["userName"],
-      display_name:  Map.get(&1, "displayName"),
-      country: Map.get(&1, "country"),
-      created_date: &1["createdDate"]
-        |> NaiveDateTime.from_iso8601!
-        |> NaiveDateTime.truncate(:second)
-    });
+    repo_users =
+      Enum.map(
+        users,
+        &%{
+          rvrb_id: &1["_id"],
+          user_name: &1["userName"],
+          display_name: Map.get(&1, "displayName"),
+          country: Map.get(&1, "country"),
+          created_date:
+            &1["createdDate"]
+            |> NaiveDateTime.from_iso8601!()
+            |> NaiveDateTime.truncate(:second)
+        }
+      )
 
     upsert(repo_users)
   end
 
   defp upsert(users) do
-    ids = Enum.map(users, &(&1.rvrb_id))
+    ids = Enum.map(users, & &1.rvrb_id)
 
     Rvrb.Repo.insert_all(
       Rvrb.User,
@@ -65,40 +89,54 @@ defmodule Rvrb.User do
       conflict_target: :rvrb_id
     )
 
-    Rvrb.Repo.all(from t in Rvrb.User, where: t.rvrb_id in ^ids)
+    Rvrb.Repo.all(from(t in Rvrb.User, where: t.rvrb_id in ^ids))
   end
 
   def get_users(ids) do
-    query = Ecto.Query.from u in Rvrb.User,
-      where: u.rvrb_id in ^ids,
-      select: {u.rvrb_id, {u.display_name, u.user_name, u.last_djed, u.created_date}}
+    query =
+      Ecto.Query.from(u in Rvrb.User,
+        where: u.rvrb_id in ^ids,
+        select: {u.rvrb_id, {u.display_name, u.user_name, u.last_djed, u.created_date, u.received_skip}}
+      )
 
-      Rvrb.Repo.all(query)
-      |> Enum.into(%{})
+    Rvrb.Repo.all(query)
+    |> Enum.into(%{})
   end
 
   def get_name(_, nil), do: nil
+
   def get_name(map, id) do
     case map[id] do
-      {"", user_name, _, _} -> user_name
-      {nil, user_name, _, _} -> user_name
-      {display_name, _, _, _} -> display_name
+      {"", user_name, _, _, _} -> user_name
+      {nil, user_name, _, _, _} -> user_name
+      {display_name, _, _, _, _} -> display_name
       nil -> id
     end
   end
 
   def get_last_djed(_, nil), do: nil
+
   def get_last_djed(map, id) do
     case map[id] do
-      {_, _, last_djed, _} -> last_djed
+      {_, _, last_djed, _, _} -> last_djed
+      nil -> id
+    end
+  end
+
+  def get_received_skip(_, nil), do: nil
+
+  def get_received_skip(map, id) do
+    case map[id] do
+      {_, _, _, _, received_skip} -> received_skip
       nil -> id
     end
   end
 
   def get_created_date(_, nil), do: nil
+
   def get_created_date(map, id) do
     case map[id] do
-      {_, _, _, created_date} -> created_date
+      {_, _, _, created_date, _} -> created_date
       nil -> id
     end
   end

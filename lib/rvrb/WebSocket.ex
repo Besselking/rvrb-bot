@@ -1,4 +1,6 @@
 alias Rvrb.GenreServer, as: GenreServer
+require Protocol
+Protocol.derive(JSON.Encoder, Spotify.Artist)
 
 defmodule Rvrb.WebSocket do
   alias Rvrb.SpotifyServer
@@ -24,7 +26,7 @@ defmodule Rvrb.WebSocket do
   end
 
   def send_message(message) do
-    data = Poison.encode!(message)
+    data = JSON.encode!(message)
     IO.puts("OUT: #{data}")
     Fresh.send(Connection, {:text, data})
   end
@@ -92,7 +94,6 @@ defmodule Rvrb.WebSocket do
       "wss://app.rvrb.one/ws-bot?apiKey=#{bot_key}",
       Rvrb.WebSocket,
       %{
-        autodope: false,
         djs: [],
         doped: false,
         starred: false,
@@ -146,25 +147,10 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
-  def handle_pushChannelMessage(%{"payload" => "\\autodope"}, state) do
-    IO.puts("command autodope!")
-
-    state = %{state | :autodope => !state[:autodope]}
-
-    if state[:autodope] do
-      chat("Autodope turned on")
-      dope()
-    else
-      chat("Autodope turned off")
-    end
-
-    {:ok, state}
-  end
-
   def handle_pushChannelMessage(%{"payload" => "\\djs"}, state) do
     IO.puts("command djs!")
 
-    current_djs = state[:djs]
+    current_djs = state.djs
     dj_map = Rvrb.User.get_users(current_djs)
 
     djs =
@@ -209,7 +195,7 @@ defmodule Rvrb.WebSocket do
   end
 
   def handle_pushChannelMessage(%{"payload" => "\\queue"}, state) do
-    send_queue(state[:queue])
+    send_queue(state.queue)
 
     {:ok, state}
   end
@@ -219,11 +205,10 @@ defmodule Rvrb.WebSocket do
     %{"userId" => userId} = params
 
     if is_admin(userId) do
-      SpotifyServer.authenticate()
       {type, id} = SpotifyUrl.parse(url)
 
       queue =
-        state[:queue] ++
+        state.queue ++
           case type do
             :track ->
               [SpotifyServer.track(id)]
@@ -272,11 +257,69 @@ defmodule Rvrb.WebSocket do
 
   def handle_pushChannelMessage(%{"payload" => "\\join"}, state) do
     IO.puts("command join!")
-    SpotifyServer.authenticate()
 
     send_message(%{
       method: "joinDjs"
     })
+
+    {:ok, state}
+  end
+
+  def handle_pushChannelMessage(%{"payload" => "\\artist"}, state) do
+    IO.puts("command artist!")
+
+    current_artists = state.currently_playing["artists"]
+
+    results =
+      for artist <- current_artists do
+        AiAnalyzer.analyze(artist)
+      end
+
+    chat(JSON.encode!(results))
+
+    {:ok, state}
+  end
+
+  def handle_pushChannelMessage(%{"payload" => "\\skip"} = params, state) do
+    IO.puts("command skip!")
+    %{"userId" => userId} = params
+    user = Rvrb.User.get(userId)
+    current_djs = state.djs
+
+    if user.received_skip do
+      chat(
+        "You've already received a skip, if you lost your position due to a disconnect ask a mod for help."
+      )
+    else
+      if userId not in current_djs do
+        chat("You have to be DJing to use \\skip")
+      else
+        djs_without = current_djs -- [userId]
+
+        reordered =
+          case djs_without do
+            [] -> [userId]
+            [current_dj] -> [current_dj, userId]
+            [current_dj | rest] -> [current_dj, userId, rest]
+          end
+
+        IO.inspect(reordered)
+
+        unless reordered == current_djs do
+          send_message(%{
+            jsonrpc: "2.0",
+            method: "updateDjs",
+            params: %{
+              djs: reordered
+            }
+          })
+
+          Rvrb.User.update_received_skip(userId)
+        else
+          chat("Skipping wont do anything right now.")
+        end
+      end
+    end
 
     {:ok, state}
   end
@@ -296,7 +339,7 @@ defmodule Rvrb.WebSocket do
     state = Map.put(state, :channelId, params["channelId"])
 
     join_message =
-      Poison.encode!(%{
+      JSON.encode!(%{
         method: "join",
         params: %{
           channelId: params["channelId"]
@@ -314,7 +357,7 @@ defmodule Rvrb.WebSocket do
     state = Map.put(state, :latency, params["latency"])
 
     keepAwake_message =
-      Poison.encode!(%{
+      JSON.encode!(%{
         method: "stayAwake",
         params: %{
           date: System.os_time(:second)
@@ -337,10 +380,10 @@ defmodule Rvrb.WebSocket do
     IO.puts("nextChannelTrack!")
     %{"id" => id} = params
 
-    [next_track | queue] = state[:queue]
+    [next_track | queue] = state.queue
 
     track_response =
-      Poison.encode!(%{
+      JSON.encode!(%{
         result: %{
           track: next_track
         },
@@ -357,22 +400,22 @@ defmodule Rvrb.WebSocket do
     dopes = for {userid, vote} <- voting, vote["dope"] > 0, do: userid
     stars = for {userid, vote} <- voting, vote["star"] > 0, do: userid
 
-    [_current_dj | djs] = state[:djs]
+    [_current_dj | djs] = state.djs
 
     doped =
-      if not Enum.empty?(djs) and Enum.empty?(djs -- dopes) and not state[:doped] do
+      if not Enum.empty?(djs) and Enum.empty?(djs -- dopes) and not state.doped do
         dope()
         true
       else
-        state[:starred]
+        state.doped
       end
 
     starred =
-      if not Enum.empty?(djs) and Enum.empty?(djs -- stars) and not state[:starred] do
+      if not Enum.empty?(djs) and Enum.empty?(djs -- stars) and not state.starred do
         star()
         true
       else
-        state[:starred]
+        state.starred
       end
 
     vote_user_ids = Map.keys(voting)
@@ -428,8 +471,14 @@ defmodule Rvrb.WebSocket do
   def handle_message(%{"method" => "updateChannelDjs", "params" => params}, state) do
     IO.puts("updateChannelDjs! #{params["type"]}")
 
-    current_djs = state[:djs]
+    current_djs = state.djs
     djs = params["djs"]
+    djs_left = current_djs -- djs
+    djs_joined = djs -- current_djs
+    all_djs = current_djs ++ djs
+    users = Rvrb.User.get_users(all_djs)
+
+    fresh_djs = Enum.filter(djs_joined, &(Rvrb.User.get_last_djed(users, &1) == nil))
 
     case djs do
       [current_dj_id | _] ->
@@ -441,13 +490,15 @@ defmodule Rvrb.WebSocket do
     end
 
     # contains duplicates
-    all_djs = current_djs ++ djs
-    users = Rvrb.User.get_users(all_djs)
 
-    djs_left = current_djs -- djs
-    djs_joined = djs -- current_djs
+    for dj <- fresh_djs do
+      chat(
+        "Hi #{Rvrb.User.get_name(users, dj)}, looks like this is your first time DJing in this room.
+        <br/>First-timers get a skip to the front, when you're ready use <strong>\\skip</strong> to skip to the front of the queue!"
+      )
+    end
 
-    if state[:debug_djs] do
+    if state.debug_djs do
       for dj <- djs_left do
         IO.puts("\t #{Rvrb.User.get_name(users, dj)} left")
       end
@@ -474,7 +525,7 @@ defmodule Rvrb.WebSocket do
 
   def handle_in({:text, data}, state) do
     # IO.puts("IN: #{data}")
-    message = Poison.decode!(data)
+    message = JSON.decode!(data)
 
     handle_message(message, state)
   end

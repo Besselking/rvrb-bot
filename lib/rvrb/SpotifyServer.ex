@@ -24,19 +24,37 @@ defmodule Rvrb.SpotifyServer do
     auth |> body_params() |> Spotify.AuthenticationClient.post()
   end
 
+  def get_auth() do
+      creds = get_creds()
+      unless (Spotify.Authentication.authenticated?(creds)) do
+          {:ok, new_creds} = authenticate(creds)
+          # make sure to persist the credentials for later!
+          put_creds(new_creds)
+          new_creds
+      else
+          creds
+      end
+  end
+
   @doc "Use the credentials to access the Spotify API through the library"
   def track(id) do
-    credentials = get_creds()
+    credentials = get_auth()
     {:ok, track} = Spotify.Track.get_track(credentials, id)
     track
   end
 
   def album_tracks(id) do
-    credentials = get_creds()
+    credentials = get_auth()
     {:ok, album_tracks} = Spotify.Album.get_album_tracks(credentials, id)
-    ids = album_tracks.items |> Enum.map(&(&1.id)) |> Enum.join(",")
+    ids = album_tracks.items |> Enum.map(& &1.id) |> Enum.join(",")
     {:ok, tracks} = Spotify.Track.get_tracks(credentials, ids: ids)
     tracks
+  end
+
+  def artist(id) do
+    credentials = get_auth()
+    {:ok, artist} = Spotify.Artist.get_artist(credentials, id)
+    artist
   end
 
   @doc false
