@@ -314,7 +314,7 @@ defmodule Rvrb.WebSocket do
             }
           })
 
-          Rvrb.User.update_received_skip(userId)
+          Rvrb.User.update_received_skip(user)
           chat("You're next up!")
         else
           chat("Skipping wont do anything right now.")
