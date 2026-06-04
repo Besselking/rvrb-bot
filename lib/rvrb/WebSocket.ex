@@ -300,7 +300,7 @@ defmodule Rvrb.WebSocket do
           case djs_without do
             [] -> [userId]
             [current_dj] -> [current_dj, userId]
-            [current_dj | rest] -> [current_dj, userId, rest]
+            [current_dj | rest] -> [current_dj, userId | rest]
           end
 
         IO.inspect(reordered)
@@ -315,6 +315,7 @@ defmodule Rvrb.WebSocket do
           })
 
           Rvrb.User.update_received_skip(userId)
+          chat("You're next up!")
         else
           chat("Skipping wont do anything right now.")
         end
