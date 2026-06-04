@@ -156,26 +156,26 @@ defmodule Rvrb.WebSocket do
     djs =
       for dj <- current_djs do
         {Rvrb.User.get_name(dj_map, dj), Rvrb.User.get_last_djed(dj_map, dj),
-         Rvrb.User.get_created_date(dj_map, dj)}
+         Rvrb.User.get_created_date(dj_map, dj), Rvrb.User.get_received_skip(dj_map, dj)}
       end
 
     use Timex
 
     rows =
-      for {name, last_djed, created_date} <- djs do
+      for {name, last_djed, created_date, received_skip} <- djs do
         relative_date =
           if last_djed != nil do
             Timex.from_now(last_djed)
           else
             ""
           end
-
-        "<tr><td>#{name}</td><td>#{relative_date}</td><td>#{Timex.from_now(created_date)}</td></tr>"
+        has_skipped = if received_skip do "✅" else "❌" end
+        "<tr><td>#{name}</td><td>#{relative_date}</td><td>#{Timex.from_now(created_date)}</td><td>#{has_skipped}</td></tr>"
       end
 
     table = "<table class=\"chat-table striped\">
       <thead>
-        <tr><th>Name</th><th>Last DJed</th><th>Member Since</th></tr>
+        <tr><th>Name</th><th>Last DJed</th><th>Member Since</th><th>Used first-time skip</th></tr>
       </thead>
       <tbody>#{Enum.join(rows)}</tbody>
     </table>"
