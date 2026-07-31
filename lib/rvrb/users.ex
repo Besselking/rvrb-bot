@@ -12,6 +12,7 @@ defmodule Rvrb.User do
     field(:last_djed, :naive_datetime)
     field(:received_skip, :boolean)
     has_many(:plays, Rvrb.Play)
+    has_many(:cast_votes, Rvrb.PlayVote, foreign_key: :voter_user_id)
   end
 
   def changeset(person, params \\ %{}) do

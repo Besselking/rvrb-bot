@@ -8,8 +8,6 @@ defmodule Rvrb.Repo.Migrations.CreatePlays do
       add :track_name, :string, null: false
       add :artist_names, {:array, :string}, null: false, default: []
       add :spotify_artist_ids, {:array, :string}, null: false, default: []
-      add :doped, :boolean, null: false, default: false
-      add :starred, :boolean, null: false, default: false
       add :played_at, :naive_datetime, null: false
     end
 
