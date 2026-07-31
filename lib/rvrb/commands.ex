@@ -363,7 +363,9 @@ defmodule Rvrb.Commands do
           {"Tracks played", play_stats.play_count},
           {"Dopes received", play_stats.dopes_received},
           {"Stars received", play_stats.stars_received},
-          {"Used first-time skip", has_skipped}
+          {"Used first-time skip", has_skipped},
+          {"Most played track", most_played_summary(play_stats.most_played)},
+          {"Highest scoring track", best_play_summary(play_stats.best_play)}
         ]
 
         table_rows = for {label, value} <- rows, do: "<tr><td>#{label}</td><td>#{value}</td></tr>"
@@ -385,4 +387,22 @@ defmodule Rvrb.Commands do
     do: display_name
 
   defp display_name(%{user_name: user_name}), do: user_name
+
+  defp most_played_summary(nil), do: "—"
+
+  defp most_played_summary(%{track_name: name, artist_names: artists, play_count: count}) do
+    "#{track_summary(name, artists)} (#{count}×)"
+  end
+
+  defp best_play_summary(nil), do: "—"
+
+  defp best_play_summary(%{track_name: name, artist_names: artists, score: score, dopes: dopes, stars: stars}) do
+    "#{track_summary(name, artists)} — #{score} pts (#{dopes} dopes, #{stars} stars)"
+  end
+
+  defp track_summary(name, artists) when is_list(artists) and artists != [] do
+    "#{name} — #{Enum.join(artists, ", ")}"
+  end
+
+  defp track_summary(name, _artists), do: name
 end

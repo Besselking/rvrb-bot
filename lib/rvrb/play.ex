@@ -67,7 +67,49 @@ defmodule Rvrb.Play do
     %{
       play_count: play_count,
       dopes_received: Map.get(vote_counts, "dope", 0),
-      stars_received: Map.get(vote_counts, "star", 0)
+      stars_received: Map.get(vote_counts, "star", 0),
+      most_played: most_played(user_id),
+      best_play: best_play(user_id)
     }
+  end
+
+  @doc "The track `user_id` has played the most times, or nil if they've never played anything."
+  def most_played(user_id) do
+    from(p in Rvrb.Play,
+      where: p.user_id == ^user_id,
+      group_by: [p.spotify_track_id, p.track_name, p.artist_names],
+      select: %{
+        track_name: p.track_name,
+        artist_names: p.artist_names,
+        play_count: count(p.id)
+      },
+      order_by: [desc: count(p.id)],
+      limit: 1
+    )
+    |> Rvrb.Repo.one()
+  end
+
+  @doc """
+  `user_id`'s single highest-scoring play - scored `star * 4 + dope * 1`,
+  summed across everyone who voted on it - or nil if they've never played
+  anything. A play nobody's voted on yet can still "win" with a score of
+  0 if it's all the user has.
+  """
+  def best_play(user_id) do
+    from(p in Rvrb.Play,
+      left_join: v in Rvrb.PlayVote,
+      on: v.play_id == p.id,
+      where: p.user_id == ^user_id,
+      group_by: p.id,
+      select: %{
+        track_name: p.track_name,
+        artist_names: p.artist_names,
+        dopes: fragment("count(*) filter (where ? = 'dope')", v.vote_type),
+        stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)
+      }
+    )
+    |> Rvrb.Repo.all()
+    |> Enum.map(&Map.put(&1, :score, &1.stars * 4 + &1.dopes * 1))
+    |> Enum.max_by(& &1.score, fn -> nil end)
   end
 end
