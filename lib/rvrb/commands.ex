@@ -11,6 +11,7 @@ defmodule Rvrb.Commands do
 
   alias Rvrb.AiAnalyzer
   alias Rvrb.GenreServer
+  alias Rvrb.Play
   alias Rvrb.SpotifyServer
   alias Rvrb.SpotifyUrl
   alias Rvrb.User
@@ -73,6 +74,12 @@ defmodule Rvrb.Commands do
       usage: "\\skip",
       description: "Use your one-time first-DJ skip to jump to the front of the queue.",
       handler: &__MODULE__.skip/3
+    },
+    %{
+      name: "stats",
+      usage: "\\stats",
+      description: "Show your own DJ stats: tracks played, dopes/stars received, and history.",
+      handler: &__MODULE__.stats/3
     }
   ]
 
@@ -338,4 +345,44 @@ defmodule Rvrb.Commands do
 
     {:ok, state}
   end
+
+  def stats(_args, %{"userId" => user_id}, state) do
+    case User.get(user_id) do
+      nil ->
+        WebSocket.chat("Don't have any stats for you yet - stick around a bit!")
+
+      user ->
+        play_stats = Play.stats_for(user.id)
+        member_since = if user.created_date, do: Timex.from_now(user.created_date), else: "?"
+        last_djed = if user.last_djed, do: Timex.from_now(user.last_djed), else: "never"
+        has_skipped = if user.received_skip, do: "✅", else: "❌"
+
+        rows = [
+          {"Member since", member_since},
+          {"Last DJed", last_djed},
+          {"Tracks played", play_stats.play_count},
+          {"Dopes received", play_stats.dopes_received},
+          {"Stars received", play_stats.stars_received},
+          {"Used first-time skip", has_skipped}
+        ]
+
+        table_rows = for {label, value} <- rows, do: "<tr><td>#{label}</td><td>#{value}</td></tr>"
+
+        table = "<table class=\"chat-table striped\">
+          <thead>
+            <tr><th colspan=\"2\">#{display_name(user)}'s stats</th></tr>
+          </thead>
+          <tbody>#{Enum.join(table_rows)}</tbody>
+        </table>"
+
+        WebSocket.chat(table)
+    end
+
+    {:ok, state}
+  end
+
+  defp display_name(%{display_name: display_name}) when display_name not in [nil, ""],
+    do: display_name
+
+  defp display_name(%{user_name: user_name}), do: user_name
 end
