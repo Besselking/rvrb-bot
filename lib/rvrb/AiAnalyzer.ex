@@ -29,10 +29,10 @@ defmodule Rvrb.AiAnalyzer do
     }
   end
 
-  @doc "Counts how many of `albums` were released in or after `year`."
+  @doc "Counts how many of `albums` (maps with a \"release_date\" key) were released in or after `year`."
   def releases_since(albums, year) do
     albums
-    |> Enum.filter(&(release_year(&1.release_date) >= year))
+    |> Enum.filter(&(release_year(&1["release_date"]) >= year))
     |> Enum.count()
   end
 

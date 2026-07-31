@@ -65,6 +65,13 @@ defmodule Rvrb.SpotifyServer do
   @doc """
   Fetches an artist's own albums and singles (excluding compilations and
   guest appearances), across up to #{@artist_albums_max_pages} pages.
+  Returns plain maps with string keys (e.g. `album["release_date"]`).
+
+  This bypasses `Spotify.Album.handle_response/1` on purpose: that helper
+  builds a `%Spotify.Album{}` via `build_album/1`, which assumes every
+  album has a nested `tracks` object. The "artist's albums" endpoint
+  returns simplified album objects with no `tracks` key at all, which
+  crashes that code path with a `BadMapError`.
   """
   def artist_albums(id) do
     credentials = get_auth()
@@ -81,9 +88,11 @@ defmodule Rvrb.SpotifyServer do
   defp fetch_albums(_credentials, _url, 0), do: []
 
   defp fetch_albums(credentials, url, pages_left) do
-    case credentials |> Spotify.Client.get(url) |> Spotify.Album.handle_response() do
-      {:ok, %Spotify.Paging{items: items, next: next}} ->
-        items ++ fetch_albums(credentials, next, pages_left - 1)
+    case Spotify.Client.get(credentials, url) do
+      {:ok, %HTTPoison.Response{status_code: code, body: body}} when code in 200..299 ->
+        page = JSON.decode!(body)
+        items = Map.get(page, "items", [])
+        items ++ fetch_albums(credentials, page["next"], pages_left - 1)
 
       _error ->
         []

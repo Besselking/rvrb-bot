@@ -26,10 +26,10 @@ defmodule Rvrb.AiAnalyzerTest do
   describe "releases_since/2" do
     test "counts only albums at or after the given year" do
       albums = [
-        %{release_date: "2024-01-01"},
-        %{release_date: "2025-06-01"},
-        %{release_date: "2023-12-31"},
-        %{release_date: "2020-01-01"}
+        %{"release_date" => "2024-01-01"},
+        %{"release_date" => "2025-06-01"},
+        %{"release_date" => "2023-12-31"},
+        %{"release_date" => "2020-01-01"}
       ]
 
       assert AiAnalyzer.releases_since(albums, 2024) == 2
