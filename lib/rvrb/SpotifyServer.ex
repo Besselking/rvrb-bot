@@ -79,6 +79,16 @@ defmodule Rvrb.SpotifyServer do
     artist
   end
 
+  @doc "Artists similar to the given artist, or [] if Spotify has none / errors out."
+  def related_artists(id) do
+    credentials = get_auth()
+
+    case Spotify.Artist.get_related_artists(credentials, id) do
+      {:ok, artists} -> artists
+      _error -> []
+    end
+  end
+
   # Spotify caps a single page at 50 items; this bounds how many pages we'll
   # follow so a wildly prolific artist can't send us on an unbounded crawl.
   @artist_albums_page_size 50
