@@ -1,10 +1,8 @@
-alias Rvrb.GenreServer, as: GenreServer
 require Protocol
 Protocol.derive(JSON.Encoder, Spotify.Artist)
 
 defmodule Rvrb.WebSocket do
-  alias Rvrb.SpotifyServer
-  alias Rvrb.SpotifyUrl
+  alias Rvrb.Commands
   use Fresh
 
   """
@@ -19,11 +17,6 @@ defmodule Rvrb.WebSocket do
       id: 1234
     }
   """
-
-  def is_admin(user_id) do
-    admins = Application.get_env(:rvrb, :bot_admins)
-    Enum.member?(admins, user_id)
-  end
 
   def send_message(message) do
     data = JSON.encode!(message)
@@ -131,104 +124,6 @@ defmodule Rvrb.WebSocket do
     :reconnect
   end
 
-  def handle_pushChannelMessage(%{"payload" => "\\qg"}, state) do
-    IO.puts("command qg!")
-
-    chat(GenreServer.get_genre())
-
-    {:ok, state}
-  end
-
-  def handle_pushChannelMessage(%{"payload" => "\\qg " <> keyword}, state) do
-    IO.puts("command qg! #{keyword}")
-
-    chat(GenreServer.get_genre(keyword))
-
-    {:ok, state}
-  end
-
-  def handle_pushChannelMessage(%{"payload" => "\\djs"}, state) do
-    IO.puts("command djs!")
-
-    current_djs = state.djs
-    dj_map = Rvrb.User.get_users(current_djs)
-
-    djs =
-      for dj <- current_djs do
-        {Rvrb.User.get_name(dj_map, dj), Rvrb.User.get_last_djed(dj_map, dj),
-         Rvrb.User.get_created_date(dj_map, dj), Rvrb.User.get_received_skip(dj_map, dj)}
-      end
-
-    use Timex
-
-    rows =
-      for {name, last_djed, created_date, received_skip} <- djs do
-        relative_date =
-          if last_djed != nil do
-            Timex.from_now(last_djed)
-          else
-            ""
-          end
-        has_skipped = if received_skip do "✅" else "❌" end
-        "<tr><td>#{name}</td><td>#{relative_date}</td><td>#{Timex.from_now(created_date)}</td><td>#{has_skipped}</td></tr>"
-      end
-
-    table = "<table class=\"chat-table striped\">
-      <thead>
-        <tr><th>Name</th><th>Last DJed</th><th>Member Since</th><th>Used first-time skip</th></tr>
-      </thead>
-      <tbody>#{Enum.join(rows)}</tbody>
-    </table>"
-
-    chat(table)
-
-    {:ok, state}
-  end
-
-  def handle_pushChannelMessage(%{"payload" => "\\spin"}, state) do
-    track = state.current_track
-    album_art = hd(track["album"]["images"])["url"]
-    chat("<span class=\"image-container\">
-      <img class=\"ui image circular spin\" src=\"#{album_art}\"/>
-    </span>")
-    {:ok, state}
-  end
-
-  def handle_pushChannelMessage(%{"payload" => "\\queue"}, state) do
-    send_queue(state.queue)
-
-    {:ok, state}
-  end
-
-  def handle_pushChannelMessage(%{"payload" => "\\queue " <> url} = params, state) do
-    IO.puts("command queue!")
-    %{"userId" => userId} = params
-
-    if is_admin(userId) do
-      {type, id} = SpotifyUrl.parse(url)
-
-      queue =
-        state.queue ++
-          case type do
-            :track ->
-              [SpotifyServer.track(id)]
-
-            :album ->
-              SpotifyServer.album_tracks(id)
-
-            :error ->
-              chat("error queuing: #{id}")
-              []
-          end
-
-      send_queue(queue)
-      {:ok, %{state | :queue => queue}}
-    else
-      chat("Sorry, you're not allowed to queue tracks")
-      {:ok, state}
-    end
-  end
-
   def handle_pushChannelMessage(%{"type" => "alert"} = params, state) do
     %{"payload" => payload, "syncTime" => synctime} = params
 
@@ -244,85 +139,15 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
-  def handle_pushChannelMessage(%{"payload" => "\\whisperback"} = params, state) do
-    IO.puts("command whisperback!")
-    %{"userId" => userId} = params
+  def handle_pushChannelMessage(%{"payload" => payload} = params, state) when is_binary(payload) do
+    case Commands.handle(payload, params, state) do
+      :not_a_command ->
+        IO.puts("pushChannelMessage! #{inspect(params)}")
+        {:ok, state}
 
-    user = Rvrb.User.get(userId)
-
-    chat("/w @#{user.display_name} hi there!")
-
-    {:ok, state}
-  end
-
-  def handle_pushChannelMessage(%{"payload" => "\\join"}, state) do
-    IO.puts("command join!")
-
-    send_message(%{
-      method: "joinDjs"
-    })
-
-    {:ok, state}
-  end
-
-  def handle_pushChannelMessage(%{"payload" => "\\artist"}, state) do
-    IO.puts("command artist!")
-
-    current_artists = state.currently_playing["artists"]
-
-    results =
-      for artist <- current_artists do
-        AiAnalyzer.analyze(artist)
-      end
-
-    chat(JSON.encode!(results))
-
-    {:ok, state}
-  end
-
-  def handle_pushChannelMessage(%{"payload" => "\\skip"} = params, state) do
-    IO.puts("command skip!")
-    %{"userId" => userId} = params
-    user = Rvrb.User.get(userId)
-    current_djs = state.djs
-
-    if user.received_skip do
-      chat(
-        "You've already received a skip, if you lost your position due to a disconnect ask a mod for help."
-      )
-    else
-      if userId not in current_djs do
-        chat("You have to be DJing to use \\skip")
-      else
-        djs_without = current_djs -- [userId]
-
-        reordered =
-          case djs_without do
-            [] -> [userId]
-            [current_dj] -> [current_dj, userId]
-            [current_dj | rest] -> [current_dj, userId | rest]
-          end
-
-        IO.inspect(reordered)
-
-        unless reordered == current_djs do
-          send_message(%{
-            jsonrpc: "2.0",
-            method: "updateDjs",
-            params: %{
-              djs: reordered
-            }
-          })
-
-          Rvrb.User.update_received_skip(user)
-          chat("You're next up!")
-        else
-          chat("Skipping wont do anything right now.")
-        end
-      end
+      result ->
+        result
     end
-
-    {:ok, state}
   end
 
   def handle_pushChannelMessage(params, state) do
