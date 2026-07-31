@@ -57,6 +57,48 @@ defmodule Rvrb.SpotifyServer do
     artist
   end
 
+  # Spotify caps a single page at 50 items; this bounds how many pages we'll
+  # follow so a wildly prolific artist can't send us on an unbounded crawl.
+  @artist_albums_page_size 50
+  @artist_albums_max_pages 5
+
+  @doc """
+  Fetches an artist's own albums and singles (excluding compilations and
+  guest appearances), across up to #{@artist_albums_max_pages} pages.
+  Returns plain maps with string keys (e.g. `album["release_date"]`).
+
+  This bypasses `Spotify.Album.handle_response/1` on purpose: that helper
+  builds a `%Spotify.Album{}` via `build_album/1`, which assumes every
+  album has a nested `tracks` object. The "artist's albums" endpoint
+  returns simplified album objects with no `tracks` key at all, which
+  crashes that code path with a `BadMapError`.
+  """
+  def artist_albums(id) do
+    credentials = get_auth()
+
+    url =
+      Spotify.Album.get_artists_albums_url(id) <>
+        "?" <>
+        URI.encode_query(limit: @artist_albums_page_size, include_groups: "album,single")
+
+    fetch_albums(credentials, url, @artist_albums_max_pages)
+  end
+
+  defp fetch_albums(_credentials, nil, _pages_left), do: []
+  defp fetch_albums(_credentials, _url, 0), do: []
+
+  defp fetch_albums(credentials, url, pages_left) do
+    case Spotify.Client.get(credentials, url) do
+      {:ok, %HTTPoison.Response{status_code: code, body: body}} when code in 200..299 ->
+        page = JSON.decode!(body)
+        items = Map.get(page, "items", [])
+        items ++ fetch_albums(credentials, page["next"], pages_left - 1)
+
+      _error ->
+        []
+    end
+  end
+
   @doc false
   def body_params(%Spotify.Credentials{refresh_token: nil}) do
     "grant_type=client_credentials"

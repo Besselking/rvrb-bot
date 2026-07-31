@@ -9,6 +9,7 @@ defmodule Rvrb.Commands do
   since sending a reply is inherently tied to the live connection.
   """
 
+  alias Rvrb.AiAnalyzer
   alias Rvrb.GenreServer
   alias Rvrb.SpotifyServer
   alias Rvrb.SpotifyUrl
@@ -63,7 +64,8 @@ defmodule Rvrb.Commands do
     %{
       name: "artist",
       usage: "\\artist",
-      description: "Analyze the artist(s) of the currently playing track.",
+      description:
+        "Show Spotify info for the currently playing track's artist(s), plus a guess at whether they're an AI spam project.",
       handler: &__MODULE__.artist/3
     },
     %{
@@ -254,12 +256,47 @@ defmodule Rvrb.Commands do
   end
 
   def artist(_args, _params, state) do
-    current_artists = state.current_track["artists"]
+    case state.current_track["artists"] do
+      artists when is_list(artists) and artists != [] ->
+        rows = for artist <- artists, do: artist_row(AiAnalyzer.analyze(artist))
 
-    results = for artist <- current_artists, do: AiAnalyzer.analyze(artist)
+        table = "<table class=\"chat-table striped\">
+          <thead>
+            <tr><th>Artist</th><th>Genres</th><th>Popularity</th><th>Followers</th><th>AI spam guess</th></tr>
+          </thead>
+          <tbody>#{Enum.join(rows)}</tbody>
+        </table>"
 
-    WebSocket.chat(JSON.encode!(results))
+        WebSocket.chat(table)
+
+      _no_track ->
+        WebSocket.chat("No track is currently playing.")
+    end
+
     {:ok, state}
+  end
+
+  defp artist_row(%{ai_verdict: %{label: verdict_label}} = info) do
+    genres = if info.genres == [], do: "—", else: Enum.join(info.genres, ", ")
+    name = if info.spotify_url, do: "<a href=\"#{info.spotify_url}\" target=\"_blank\">#{info.name}</a>", else: info.name
+
+    "<tr>
+      <td>#{name}</td>
+      <td>#{genres}</td>
+      <td>#{info.popularity}</td>
+      <td>#{format_followers(info.followers)}</td>
+      <td>#{verdict_label}</td>
+    </tr>"
+  end
+
+  defp format_followers(nil), do: "?"
+
+  defp format_followers(count) when is_integer(count) do
+    count
+    |> Integer.to_string()
+    |> String.reverse()
+    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
+    |> String.reverse()
   end
 
   def skip(_args, %{"userId" => user_id}, state) do
