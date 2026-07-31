@@ -1,20 +1,37 @@
 defmodule Rvrb.SpotifyServer do
   @moduledoc "This module uses an `Agent` to persist the tokens"
-  @doc "The `Agent` is started with an empty `Credentials` struct"
+
+  # spotify_ex's `Credentials` struct has no expiry field, and
+  # `Spotify.AuthenticationClient.post/1` discards the `expires_in` Spotify
+  # returns, so there's no way to ask the library "is this token still
+  # good?". We track expiry ourselves instead. Client-credentials tokens are
+  # issued with a 3600s lifetime; we treat them as stale a bit early to
+  # leave room for in-flight requests near the boundary.
+  @token_ttl_seconds 3300
+
+  @doc "The `Agent` is started with no credentials and no expiry yet."
   def start_link do
-    Agent.start_link(fn -> %Spotify.Credentials{} end, name: CredStore)
+    Agent.start_link(fn -> %{credentials: %Spotify.Credentials{}, expires_at: nil} end,
+      name: CredStore
+    )
   end
 
-  defp get_creds, do: Agent.get(CredStore, & &1)
+  defp get_state, do: Agent.get(CredStore, & &1)
 
-  defp put_creds(creds), do: Agent.update(CredStore, fn _ -> creds end)
+  defp put_creds(creds) do
+    expires_at = System.monotonic_time(:second) + @token_ttl_seconds
+    Agent.update(CredStore, fn _ -> %{credentials: creds, expires_at: expires_at} end)
+  end
+
+  defp fresh?(%{expires_at: nil}), do: false
+  defp fresh?(%{expires_at: expires_at}), do: System.monotonic_time(:second) < expires_at
 
   @doc "Used to link the user to Spotify to kick off the auth process"
   def auth_url, do: Spotify.Authorization.url()
 
   @doc "`params` are passed to your callback endpoint from Spotify"
   def authenticate() do
-    creds = get_creds()
+    %{credentials: creds} = get_state()
     {:ok, new_creds} = authenticate(creds)
     # make sure to persist the credentials for later!
     put_creds(new_creds)
@@ -24,16 +41,21 @@ defmodule Rvrb.SpotifyServer do
     auth |> body_params() |> Spotify.AuthenticationClient.post()
   end
 
+  @doc """
+  Returns cached Spotify credentials, only requesting a new token when we
+  don't have one yet or the cached one has (likely) expired.
+  """
   def get_auth() do
-      creds = get_creds()
-      unless (Spotify.Authentication.authenticated?(creds)) do
-          {:ok, new_creds} = authenticate(creds)
-          # make sure to persist the credentials for later!
-          put_creds(new_creds)
-          new_creds
-      else
-          creds
-      end
+    state = get_state()
+
+    if fresh?(state) do
+      state.credentials
+    else
+      {:ok, new_creds} = authenticate(state.credentials)
+      # make sure to persist the credentials for later!
+      put_creds(new_creds)
+      new_creds
+    end
   end
 
   @doc "Use the credentials to access the Spotify API through the library"
