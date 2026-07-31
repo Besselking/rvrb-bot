@@ -69,12 +69,6 @@ defmodule Rvrb.Commands do
       handler: &__MODULE__.artist/3
     },
     %{
-      name: "related",
-      usage: "\\related",
-      description: "Show artists similar to the currently playing track's artist.",
-      handler: &__MODULE__.related/3
-    },
-    %{
       name: "skip",
       usage: "\\skip",
       description: "Use your one-time first-DJ skip to jump to the front of the queue.",
@@ -303,47 +297,6 @@ defmodule Rvrb.Commands do
     |> String.reverse()
     |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
     |> String.reverse()
-  end
-
-  @related_artists_limit 8
-
-  def related(_args, _params, state) do
-    case state.current_track["artists"] do
-      [%{"id" => artist_id, "name" => artist_name} | _rest] ->
-        case SpotifyServer.related_artists(artist_id) |> Enum.take(@related_artists_limit) do
-          [] ->
-            WebSocket.chat("Couldn't find anyone Spotify considers similar to #{artist_name}.")
-
-          related ->
-            rows = for artist <- related, do: related_artist_row(artist)
-
-            table = "<table class=\"chat-table striped\">
-              <thead>
-                <tr><th>Artists similar to #{artist_name}</th><th>Genres</th><th>Popularity</th></tr>
-              </thead>
-              <tbody>#{Enum.join(rows)}</tbody>
-            </table>"
-
-            WebSocket.chat(table)
-        end
-
-      _no_track ->
-        WebSocket.chat("No track is currently playing.")
-    end
-
-    {:ok, state}
-  end
-
-  defp related_artist_row(%Spotify.Artist{} = artist) do
-    genres = if artist.genres in [nil, []], do: "—", else: Enum.join(artist.genres, ", ")
-
-    name =
-      case get_in(artist.external_urls, ["spotify"]) do
-        nil -> artist.name
-        url -> "<a href=\"#{url}\" target=\"_blank\">#{artist.name}</a>"
-      end
-
-    "<tr><td>#{name}</td><td>#{genres}</td><td>#{artist.popularity}</td></tr>"
   end
 
   def skip(_args, %{"userId" => user_id}, state) do
