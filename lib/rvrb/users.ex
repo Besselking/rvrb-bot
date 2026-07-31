@@ -11,6 +11,7 @@ defmodule Rvrb.User do
     field(:created_date, :naive_datetime)
     field(:last_djed, :naive_datetime)
     field(:received_skip, :boolean)
+    has_many(:plays, Rvrb.Play)
   end
 
   def changeset(person, params \\ %{}) do
