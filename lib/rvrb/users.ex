@@ -105,6 +105,14 @@ defmodule Rvrb.User do
     |> Enum.into(%{})
   end
 
+  @doc "Maps rvrb_id => internal id for the given rvrb_ids, for use as a foreign key elsewhere."
+  def get_ids(rvrb_ids) do
+    query = Ecto.Query.from(u in Rvrb.User, where: u.rvrb_id in ^rvrb_ids, select: {u.rvrb_id, u.id})
+
+    Rvrb.Repo.all(query)
+    |> Enum.into(%{})
+  end
+
   def get_name(_, nil), do: nil
 
   def get_name(map, id) do

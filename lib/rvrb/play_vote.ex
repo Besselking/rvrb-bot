@@ -17,6 +17,8 @@ defmodule Rvrb.PlayVote do
   """
   use Ecto.Schema
 
+  import Ecto.Query
+
   schema "play_votes" do
     belongs_to :play, Rvrb.Play
     belongs_to :voter, Rvrb.User, foreign_key: :voter_user_id
@@ -31,5 +33,38 @@ defmodule Rvrb.PlayVote do
     |> Ecto.Changeset.foreign_key_constraint(:play_id)
     |> Ecto.Changeset.foreign_key_constraint(:voter_user_id)
     |> Ecto.Changeset.unique_constraint([:play_id, :voter_user_id, :vote_type])
+  end
+
+  @doc """
+  Syncs the votes recorded for `play_id` to exactly `desired` - a
+  `MapSet` of `{voter_user_id, vote_type}` tuples representing the room's
+  current vote state. Inserts whatever's missing, deletes whatever's no
+  longer there.
+  """
+  def sync(play_id, desired) do
+    existing =
+      from(v in Rvrb.PlayVote,
+        where: v.play_id == ^play_id,
+        select: {v.voter_user_id, v.vote_type}
+      )
+      |> Rvrb.Repo.all()
+      |> MapSet.new()
+
+    for {voter_user_id, vote_type} <- MapSet.difference(desired, existing) do
+      %Rvrb.PlayVote{}
+      |> changeset(%{play_id: play_id, voter_user_id: voter_user_id, vote_type: vote_type})
+      |> Rvrb.Repo.insert(on_conflict: :nothing)
+    end
+
+    for {voter_user_id, vote_type} <- MapSet.difference(existing, desired) do
+      from(v in Rvrb.PlayVote,
+        where:
+          v.play_id == ^play_id and v.voter_user_id == ^voter_user_id and
+            v.vote_type == ^vote_type
+      )
+      |> Rvrb.Repo.delete_all()
+    end
+
+    :ok
   end
 end

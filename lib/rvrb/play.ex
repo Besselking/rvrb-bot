@@ -36,4 +36,10 @@ defmodule Rvrb.Play do
     |> Ecto.Changeset.validate_required([:user_id, :track_name, :played_at])
     |> Ecto.Changeset.foreign_key_constraint(:user_id)
   end
+
+  def record(attrs) do
+    %Rvrb.Play{}
+    |> changeset(attrs)
+    |> Rvrb.Repo.insert()
+  end
 end
