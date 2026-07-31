@@ -77,8 +77,8 @@ defmodule Rvrb.Commands do
     },
     %{
       name: "stats",
-      usage: "\\stats",
-      description: "Show your own DJ stats: tracks played, dopes/stars received, and history.",
+      usage: "\\stats [@user]",
+      description: "Show DJ stats (tracks played, dopes/stars received, history) for yourself or a tagged user.",
       handler: &__MODULE__.stats/3
     }
   ]
@@ -346,40 +346,77 @@ defmodule Rvrb.Commands do
     {:ok, state}
   end
 
-  def stats(_args, %{"userId" => user_id}, state) do
-    case User.get(user_id) do
+  def stats("", %{"userId" => user_id}, state) do
+    render_stats(User.get(user_id), "You don't have any stats yet - stick around a bit!", state)
+  end
+
+  def stats(args, _params, state) do
+    case parse_tagged_username(args) do
       nil ->
-        WebSocket.chat("Don't have any stats for you yet - stick around a bit!")
+        WebSocket.chat("Tag someone with @ to see their stats, or use \\stats alone for your own.")
+        {:ok, state}
 
-      user ->
-        play_stats = Play.stats_for(user.id)
-        member_since = if user.created_date, do: Timex.from_now(user.created_date), else: "?"
-        last_djed = if user.last_djed, do: Timex.from_now(user.last_djed), else: "never"
-        has_skipped = if user.received_skip, do: "✅", else: "❌"
-
-        rows = [
-          {"Member since", member_since},
-          {"Last DJed", last_djed},
-          {"Tracks played", play_stats.play_count},
-          {"Dopes received", play_stats.dopes_received},
-          {"Stars received", play_stats.stars_received},
-          {"Used first-time skip", has_skipped},
-          {"Most played track", most_played_summary(play_stats.most_played)},
-          {"Highest scoring track", best_play_summary(play_stats.best_play)}
-        ]
-
-        table_rows = for {label, value} <- rows, do: "<tr><td>#{label}</td><td>#{value}</td></tr>"
-
-        table = "<table class=\"chat-table striped\">
-          <thead>
-            <tr><th colspan=\"2\">#{display_name(user)}'s stats</th></tr>
-          </thead>
-          <tbody>#{Enum.join(table_rows)}</tbody>
-        </table>"
-
-        WebSocket.chat(table)
+      username ->
+        render_stats(
+          User.get_by_user_name(username),
+          "No stats for #{username} yet - haven't seen them DJ.",
+          state
+        )
     end
+  end
 
+  @doc """
+  RVRB renders an @-tag in chat as `<span class="username Bess">@Bess 🐸 </span>` -
+  "Bess" (the class) is the stable username, "Bess 🐸" (the text) is the
+  display name, which can contain emoji/spaces and isn't a reliable lookup
+  key. Falls back to treating the raw args as a plain "@username" or
+  "username" for people who type the command by hand instead of tagging.
+  Returns `nil` if no username could be found either way.
+  """
+  @tag_regex ~r/class="username ([^"]+)"/
+
+  def parse_tagged_username(args) do
+    case Regex.run(@tag_regex, args) do
+      [_match, username] -> username
+      nil -> args |> String.trim() |> String.trim_leading("@") |> non_empty()
+    end
+  end
+
+  defp non_empty(""), do: nil
+  defp non_empty(str), do: str
+
+  defp render_stats(nil, not_found_message, state) do
+    WebSocket.chat(not_found_message)
+    {:ok, state}
+  end
+
+  defp render_stats(user, _not_found_message, state) do
+    play_stats = Play.stats_for(user.id)
+    member_since = if user.created_date, do: Timex.from_now(user.created_date), else: "?"
+    last_djed = if user.last_djed, do: Timex.from_now(user.last_djed), else: "never"
+    has_skipped = if user.received_skip, do: "✅", else: "❌"
+
+    rows = [
+      {"Member since", member_since},
+      {"Last DJed", last_djed},
+      {"Tracks played", play_stats.play_count},
+      {"Dopes received", play_stats.dopes_received},
+      {"Stars received", play_stats.stars_received},
+      {"Used first-time skip", has_skipped},
+      {"Most played track", most_played_summary(play_stats.most_played)},
+      {"Highest scoring track", best_play_summary(play_stats.best_play)}
+    ]
+
+    table_rows = for {label, value} <- rows, do: "<tr><td>#{label}</td><td>#{value}</td></tr>"
+
+    table = "<table class=\"chat-table striped\">
+      <thead>
+        <tr><th colspan=\"2\">#{display_name(user)}'s stats</th></tr>
+      </thead>
+      <tbody>#{Enum.join(table_rows)}</tbody>
+    </table>"
+
+    WebSocket.chat(table)
     {:ok, state}
   end
 

@@ -34,6 +34,11 @@ defmodule Rvrb.User do
     Rvrb.Repo.get_by(Rvrb.User, rvrb_id: id)
   end
 
+  @doc "Looks a user up by their RVRB username (as opposed to their internal rvrb_id)."
+  def get_by_user_name(user_name) do
+    Rvrb.Repo.get_by(Rvrb.User, user_name: user_name)
+  end
+
   def update_last_djed(user) do
     if user == nil do
       nil

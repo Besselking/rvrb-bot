@@ -32,6 +32,40 @@ defmodule Rvrb.CommandsTest do
     end
   end
 
+  describe "parse_tagged_username/1" do
+    test "extracts the username from RVRB's rendered @-tag span" do
+      assert Commands.parse_tagged_username(
+               "<span class=\"username Bess\">@Bess 🐸 </span>"
+             ) == "Bess"
+    end
+
+    test "does not mistake the display name (with emoji) for the username" do
+      username =
+        Commands.parse_tagged_username("<span class=\"username Bess\">@Bess 🐸 </span>")
+
+      assert username == "Bess"
+      refute username =~ "🐸"
+    end
+
+    test "falls back to a plain @username typed by hand" do
+      assert Commands.parse_tagged_username("@Bess") == "Bess"
+    end
+
+    test "falls back to a bare username with no @ at all" do
+      assert Commands.parse_tagged_username("Bess") == "Bess"
+    end
+
+    test "trims whitespace around a plain fallback username" do
+      assert Commands.parse_tagged_username("  @Bess  ") == "Bess"
+    end
+
+    test "returns nil for blank args" do
+      assert Commands.parse_tagged_username("") == nil
+      assert Commands.parse_tagged_username("   ") == nil
+      assert Commands.parse_tagged_username("@") == nil
+    end
+  end
+
   describe "commands/0" do
     test "includes a help command" do
       assert Enum.any?(Commands.commands(), &(&1.name == "help"))
