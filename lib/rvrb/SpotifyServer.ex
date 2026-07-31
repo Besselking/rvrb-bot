@@ -79,12 +79,23 @@ defmodule Rvrb.SpotifyServer do
     artist
   end
 
-  @doc "Artists similar to the given artist, or [] if Spotify has none / errors out."
+  @doc """
+  Artists similar to the given artist, or [] if Spotify has none / errors out.
+
+  Note: Spotify deprecated this endpoint for apps without legacy "extended
+  quota mode" access as of Nov 2024 - for most apps created since, every
+  call here will 404. There's no way to detect that ahead of time short of
+  trying it, so we just degrade to an empty list.
+  """
   def related_artists(id) do
     credentials = get_auth()
 
+    # spotify_ex's response handler returns `{:ok, body}` even for 4xx
+    # responses (it only inspects the HTTP transport result, not Spotify's
+    # own status code), so a 404 error map can come back wrapped in `:ok`.
+    # Guard on the shape we actually expect instead of just the tag.
     case Spotify.Artist.get_related_artists(credentials, id) do
-      {:ok, artists} -> artists
+      {:ok, artists} when is_list(artists) -> artists
       _error -> []
     end
   end
