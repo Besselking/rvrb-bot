@@ -57,6 +57,39 @@ defmodule Rvrb.SpotifyServer do
     artist
   end
 
+  # Spotify caps a single page at 50 items; this bounds how many pages we'll
+  # follow so a wildly prolific artist can't send us on an unbounded crawl.
+  @artist_albums_page_size 50
+  @artist_albums_max_pages 5
+
+  @doc """
+  Fetches an artist's own albums and singles (excluding compilations and
+  guest appearances), across up to #{@artist_albums_max_pages} pages.
+  """
+  def artist_albums(id) do
+    credentials = get_auth()
+
+    url =
+      Spotify.Album.get_artists_albums_url(id) <>
+        "?" <>
+        URI.encode_query(limit: @artist_albums_page_size, include_groups: "album,single")
+
+    fetch_albums(credentials, url, @artist_albums_max_pages)
+  end
+
+  defp fetch_albums(_credentials, nil, _pages_left), do: []
+  defp fetch_albums(_credentials, _url, 0), do: []
+
+  defp fetch_albums(credentials, url, pages_left) do
+    case credentials |> Spotify.Client.get(url) |> Spotify.Album.handle_response() do
+      {:ok, %Spotify.Paging{items: items, next: next}} ->
+        items ++ fetch_albums(credentials, next, pages_left - 1)
+
+      _error ->
+        []
+    end
+  end
+
   @doc false
   def body_params(%Spotify.Credentials{refresh_token: nil}) do
     "grant_type=client_credentials"

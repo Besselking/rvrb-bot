@@ -1,6 +1,3 @@
-require Protocol
-Protocol.derive(JSON.Encoder, Spotify.Artist)
-
 defmodule Rvrb.WebSocket do
   alias Rvrb.Commands
   use Fresh
