@@ -1,5 +1,6 @@
 defmodule Rvrb.WebSocket do
   alias Rvrb.Commands
+  alias Rvrb.PlayTracker
   use Fresh
 
   """
@@ -89,6 +90,7 @@ defmodule Rvrb.WebSocket do
         starred: false,
         debug_djs: true,
         current_track: %{},
+        current_play_id: nil,
         queue: []
       },
       name: {:local, Connection}
@@ -223,6 +225,8 @@ defmodule Rvrb.WebSocket do
     dopes = for {userid, vote} <- voting, vote["dope"] > 0, do: userid
     stars = for {userid, vote} <- voting, vote["star"] > 0, do: userid
 
+    PlayTracker.sync_votes(state.current_play_id, voting)
+
     [_current_dj | djs] = state.djs
 
     doped =
@@ -272,7 +276,8 @@ defmodule Rvrb.WebSocket do
     IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
     dope()
 
-    {:ok, %{state | current_track: track}}
+    play_id = PlayTracker.record(state.djs, track)
+    {:ok, %{state | current_track: track, current_play_id: play_id}}
   end
 
   def handle_message(
@@ -283,7 +288,8 @@ defmodule Rvrb.WebSocket do
     IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
     # IO.puts("playChannelTrack! #{inspect(track)}")
 
-    {:ok, %{state | doped: false, starred: false, current_track: track}}
+    play_id = PlayTracker.record(state.djs, track)
+    {:ok, %{state | doped: false, starred: false, current_track: track, current_play_id: play_id}}
   end
 
   def handle_message(%{"method" => "updateChannelUserStatus"}, state) do

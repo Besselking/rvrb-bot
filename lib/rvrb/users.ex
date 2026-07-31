@@ -11,6 +11,8 @@ defmodule Rvrb.User do
     field(:created_date, :naive_datetime)
     field(:last_djed, :naive_datetime)
     field(:received_skip, :boolean)
+    has_many(:plays, Rvrb.Play)
+    has_many(:cast_votes, Rvrb.PlayVote, foreign_key: :voter_user_id)
   end
 
   def changeset(person, params \\ %{}) do
@@ -30,6 +32,11 @@ defmodule Rvrb.User do
 
   def get(id) do
     Rvrb.Repo.get_by(Rvrb.User, rvrb_id: id)
+  end
+
+  @doc "Looks a user up by their RVRB username (as opposed to their internal rvrb_id)."
+  def get_by_user_name(user_name) do
+    Rvrb.Repo.get_by(Rvrb.User, user_name: user_name)
   end
 
   def update_last_djed(user) do
@@ -98,6 +105,14 @@ defmodule Rvrb.User do
         where: u.rvrb_id in ^ids,
         select: {u.rvrb_id, {u.display_name, u.user_name, u.last_djed, u.created_date, u.received_skip}}
       )
+
+    Rvrb.Repo.all(query)
+    |> Enum.into(%{})
+  end
+
+  @doc "Maps rvrb_id => internal id for the given rvrb_ids, for use as a foreign key elsewhere."
+  def get_ids(rvrb_ids) do
+    query = Ecto.Query.from(u in Rvrb.User, where: u.rvrb_id in ^rvrb_ids, select: {u.rvrb_id, u.id})
 
     Rvrb.Repo.all(query)
     |> Enum.into(%{})
