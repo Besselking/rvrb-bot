@@ -142,18 +142,7 @@ defmodule Rvrb.Commands do
   ## -- handlers --------------------------------------------------------
 
   def help("", _params, state) do
-    rows =
-      for %{usage: usage, description: description} <- @commands do
-        "<tr><td>#{usage}</td><td>#{description}</td></tr>"
-      end
-
-    table = "<table class=\"chat-table striped\">
-      <thead>
-        <tr><th>Command</th><th>Description</th></tr>
-      </thead>
-      <tbody>#{Enum.join(rows)}</tbody>
-    </table>"
-
+    table = Html.table(@commands, [{:usage, "Command"}, {:description, "Description"}])
     WebSocket.chat(table)
     {:ok, state}
   end
@@ -184,26 +173,25 @@ defmodule Rvrb.Commands do
     current_djs = state.djs
     dj_map = User.get_users(current_djs)
 
-    djs =
-      for dj <- current_djs do
-        {User.get_name(dj_map, dj), User.get_last_djed(dj_map, dj),
-         User.get_created_date(dj_map, dj), User.get_received_skip(dj_map, dj)}
-      end
-
     rows =
-      for {name, last_djed, created_date, received_skip} <- djs do
-        relative_date = if last_djed != nil, do: Timex.from_now(last_djed), else: ""
-        has_skipped = if received_skip, do: "✅", else: "❌"
+      for dj <- current_djs do
+        last_djed = User.get_last_djed(dj_map, dj)
 
-        "<tr><td>#{name}</td><td>#{relative_date}</td><td>#{Timex.from_now(created_date)}</td><td>#{has_skipped}</td></tr>"
+        %{
+          name: User.get_name(dj_map, dj),
+          last_djed: if(last_djed != nil, do: Timex.from_now(last_djed), else: ""),
+          created_date: Timex.from_now(User.get_created_date(dj_map, dj)),
+          used_skip: if(User.get_received_skip(dj_map, dj), do: "✅", else: "❌")
+        }
       end
 
-    table = "<table class=\"chat-table striped\">
-      <thead>
-        <tr><th>Name</th><th>Last DJed</th><th>Member Since</th><th>Used first-time skip</th></tr>
-      </thead>
-      <tbody>#{Enum.join(rows)}</tbody>
-    </table>"
+    table =
+      Html.table(rows, [
+        {:name, "Name"},
+        {:last_djed, "Last DJed"},
+        {:created_date, "Member Since"},
+        {:used_skip, "Used first-time skip"}
+      ])
 
     WebSocket.chat(table)
     {:ok, state}
@@ -267,12 +255,14 @@ defmodule Rvrb.Commands do
       artists when is_list(artists) and artists != [] ->
         rows = for artist <- artists, do: artist_row(AiAnalyzer.analyze(artist))
 
-        table = "<table class=\"chat-table striped\">
-          <thead>
-            <tr><th>Artist</th><th>Genres</th><th>Popularity</th><th>Followers</th><th>AI spam guess</th></tr>
-          </thead>
-          <tbody>#{Enum.join(rows)}</tbody>
-        </table>"
+        table =
+          Html.table(rows, [
+            {:artist, "Artist"},
+            {:genres, "Genres"},
+            {:popularity, "Popularity"},
+            {:followers, "Followers"},
+            {:ai_verdict, "AI spam guess"}
+          ])
 
         WebSocket.chat(table)
 
@@ -284,17 +274,19 @@ defmodule Rvrb.Commands do
   end
 
   defp artist_row(%{ai_verdict: %{label: verdict_label}} = info) do
-    genres = if info.genres == [], do: "—", else: Enum.join(info.genres, ", ")
-    name = if info.spotify_url, do: "<a href=\"#{info.spotify_url}\" target=\"_blank\">#{info.name}</a>", else: info.name
-
-    "<tr>
-      <td>#{name}</td>
-      <td>#{genres}</td>
-      <td>#{info.popularity}</td>
-      <td>#{format_followers(info.followers)}</td>
-      <td>#{verdict_label}</td>
-    </tr>"
+    %{
+      artist: artist_link(info),
+      genres: if(info.genres == [], do: "—", else: Enum.join(info.genres, ", ")),
+      popularity: to_string(info.popularity),
+      followers: format_followers(info.followers),
+      ai_verdict: verdict_label
+    }
   end
+
+  defp artist_link(%{spotify_url: nil, name: name}), do: name
+
+  defp artist_link(%{spotify_url: url, name: name}),
+    do: "<a href=\"#{url}\" target=\"_blank\">#{name}</a>"
 
   defp format_followers(nil), do: "?"
 
@@ -397,24 +389,18 @@ defmodule Rvrb.Commands do
     has_skipped = if user.received_skip, do: "✅", else: "❌"
 
     rows = [
-      {"Member since", member_since},
-      {"Last DJed", last_djed},
-      {"Tracks played", play_stats.play_count},
-      {"Dopes received", play_stats.dopes_received},
-      {"Stars received", play_stats.stars_received},
-      {"Used first-time skip", has_skipped},
-      {"Most played track", most_played_summary(play_stats.most_played)},
-      {"Highest scoring track", best_play_summary(play_stats.best_play)}
+      %{label: "Member since", value: member_since},
+      %{label: "Last DJed", value: last_djed},
+      %{label: "Tracks played", value: to_string(play_stats.play_count)},
+      %{label: "Dopes received", value: to_string(play_stats.dopes_received)},
+      %{label: "Stars received", value: to_string(play_stats.stars_received)},
+      %{label: "Used first-time skip", value: has_skipped},
+      %{label: "Most played track", value: most_played_summary(play_stats.most_played)},
+      %{label: "Highest scoring track", value: best_play_summary(play_stats.best_play)}
     ]
 
-    table_rows = for {label, value} <- rows, do: "<tr><td>#{label}</td><td>#{value}</td></tr>"
-
-    table = "<table class=\"chat-table striped\">
-      <thead>
-        <tr><th colspan=\"2\">#{display_name(user)}'s stats</th></tr>
-      </thead>
-      <tbody>#{Enum.join(table_rows)}</tbody>
-    </table>"
+    table =
+      Html.table(rows, [{:label, nil}, {:value, nil}], title: "#{display_name(user)}'s stats")
 
     WebSocket.chat(table)
     {:ok, state}

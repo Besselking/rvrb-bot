@@ -39,11 +39,9 @@ defmodule Rvrb.User do
     Rvrb.Repo.get_by(Rvrb.User, user_name: user_name)
   end
 
-  def update_last_djed(user) do
-    if user == nil do
-      nil
-    end
+  def update_last_djed(nil), do: nil
 
+  def update_last_djed(user) do
     update_dj_timestamp =
       changeset(user, %{
         last_djed: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
@@ -52,11 +50,9 @@ defmodule Rvrb.User do
     Rvrb.Repo.update(update_dj_timestamp)
   end
 
-  def update_received_skip(user) do
-    if user == nil do
-      nil
-    end
+  def update_received_skip(nil), do: nil
 
+  def update_received_skip(user) do
     update_user_received_skip =
       changeset(user, %{
         received_skip: true
@@ -99,15 +95,24 @@ defmodule Rvrb.User do
     Rvrb.Repo.all(from(t in Rvrb.User, where: t.rvrb_id in ^ids))
   end
 
+  @doc "Maps rvrb_id => a lookup map of that user's fields, for the given rvrb_ids."
   def get_users(ids) do
     query =
       Ecto.Query.from(u in Rvrb.User,
         where: u.rvrb_id in ^ids,
-        select: {u.rvrb_id, {u.display_name, u.user_name, u.last_djed, u.created_date, u.received_skip}}
+        select: %{
+          rvrb_id: u.rvrb_id,
+          display_name: u.display_name,
+          user_name: u.user_name,
+          last_djed: u.last_djed,
+          created_date: u.created_date,
+          received_skip: u.received_skip
+        }
       )
 
-    Rvrb.Repo.all(query)
-    |> Enum.into(%{})
+    query
+    |> Rvrb.Repo.all()
+    |> Map.new(&{&1.rvrb_id, &1})
   end
 
   @doc "Maps rvrb_id => internal id for the given rvrb_ids, for use as a foreign key elsewhere."
@@ -122,10 +127,14 @@ defmodule Rvrb.User do
 
   def get_name(map, id) do
     case map[id] do
-      {"", user_name, _, _, _} -> user_name
-      {nil, user_name, _, _, _} -> user_name
-      {display_name, _, _, _, _} -> display_name
-      nil -> id
+      nil ->
+        nil
+
+      %{display_name: display_name, user_name: user_name} when display_name in [nil, ""] ->
+        user_name
+
+      %{display_name: display_name} ->
+        display_name
     end
   end
 
@@ -133,8 +142,8 @@ defmodule Rvrb.User do
 
   def get_last_djed(map, id) do
     case map[id] do
-      {_, _, last_djed, _, _} -> last_djed
-      nil -> id
+      nil -> nil
+      %{last_djed: last_djed} -> last_djed
     end
   end
 
@@ -142,8 +151,8 @@ defmodule Rvrb.User do
 
   def get_received_skip(map, id) do
     case map[id] do
-      {_, _, _, _, received_skip} -> received_skip
-      nil -> id
+      nil -> nil
+      %{received_skip: received_skip} -> received_skip
     end
   end
 
@@ -151,8 +160,8 @@ defmodule Rvrb.User do
 
   def get_created_date(map, id) do
     case map[id] do
-      {_, _, _, created_date, _} -> created_date
-      nil -> id
+      nil -> nil
+      %{created_date: created_date} -> created_date
     end
   end
 end
