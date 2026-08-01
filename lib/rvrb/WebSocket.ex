@@ -52,7 +52,7 @@ defmodule Rvrb.WebSocket do
   end
 
   def send_queue(queue) do
-    new_queue =
+    rows =
       for track <- queue do
         artists =
           track.artists
@@ -63,19 +63,10 @@ defmodule Rvrb.WebSocket do
           (track.album["images"]
            |> Enum.min_by(& &1["width"]))["url"]
 
-        "<tr>
-        <td><img src=\"#{smallest_image_url}\"/>
-        <td>#{track.name}</td>
-        <td>#{artists}</td>
-      </tr>"
+        %{image: "<img src=\"#{smallest_image_url}\"/>", name: track.name, artist: artists}
       end
 
-    table = "<table class=\"chat-table striped\">
-      <thead>
-        <tr><th></th><th>Name</th><th>Artist<th></tr>
-      </thead>
-      <tbody>#{Enum.join(new_queue)}</tbody>
-    </table>"
+    table = Html.table(rows, [{:image, ""}, {:name, "Name"}, {:artist, "Artist"}])
 
     chat("current queue:" <> table)
   end
