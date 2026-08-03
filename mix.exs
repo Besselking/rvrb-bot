@@ -5,7 +5,7 @@ defmodule Rvrb.MixProject do
     [
       app: :rvrb,
       version: "0.1.0",
-      elixir: "~> 1.18",
+      elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -22,7 +22,8 @@ defmodule Rvrb.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:fresh, "~> 0.4.4"},
+      # Vendored, not pulled from Hex - see vendor/fresh/README.md for why.
+      {:fresh, path: "vendor/fresh"},
       {:poison, "~> 3.1"},
       {:ecto_sql, "~> 3.12"},
       {:postgrex, "~> 0.20.0"},

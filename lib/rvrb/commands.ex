@@ -396,7 +396,12 @@ defmodule Rvrb.Commands do
       %{label: "Stars received", value: to_string(play_stats.stars_received)},
       %{label: "Used first-time skip", value: has_skipped},
       %{label: "Most played track", value: most_played_summary(play_stats.most_played)},
-      %{label: "Highest scoring track", value: best_play_summary(play_stats.best_play)}
+      %{label: "Highest scoring track", value: best_play_summary(play_stats.best_play)},
+      %{
+        label: "Most played artist",
+        value: most_played_artist_summary(play_stats.most_played_artist)
+      },
+      %{label: "Highest scoring artist", value: best_artist_summary(play_stats.best_artist)}
     ]
 
     table =
@@ -428,4 +433,16 @@ defmodule Rvrb.Commands do
   end
 
   defp track_summary(name, _artists), do: name
+
+  defp most_played_artist_summary(nil), do: "—"
+
+  defp most_played_artist_summary(%{artist_name: artist_name, play_count: count}) do
+    "#{artist_name} (#{count}×)"
+  end
+
+  defp best_artist_summary(nil), do: "—"
+
+  defp best_artist_summary(%{artist_name: artist_name, score: score}) do
+    "#{artist_name} — #{score} pts"
+  end
 end
