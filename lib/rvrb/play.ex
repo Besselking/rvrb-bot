@@ -69,7 +69,9 @@ defmodule Rvrb.Play do
       dopes_received: Map.get(vote_counts, "dope", 0),
       stars_received: Map.get(vote_counts, "star", 0),
       most_played: most_played(user_id),
-      best_play: best_play(user_id)
+      best_play: best_play(user_id),
+      most_played_artist: most_played_artist(user_id),
+      best_artist: best_artist(user_id)
     }
   end
 
@@ -111,5 +113,53 @@ defmodule Rvrb.Play do
     |> Rvrb.Repo.all()
     |> Enum.map(&Map.put(&1, :score, &1.stars * 4 + &1.dopes * 1))
     |> Enum.max_by(& &1.score, fn -> nil end)
+  end
+
+  @doc """
+  The artist `user_id` has played the most times, counting every play of
+  every track that credits them (so a play with multiple artists counts
+  toward each), or nil if they've never played anything.
+  """
+  def most_played_artist(user_id) do
+    from(p in Rvrb.Play, where: p.user_id == ^user_id, select: p.artist_names)
+    |> Rvrb.Repo.all()
+    |> List.flatten()
+    |> Enum.frequencies()
+    |> Enum.max_by(fn {_artist, count} -> count end, fn -> nil end)
+    |> case do
+      nil -> nil
+      {artist_name, play_count} -> %{artist_name: artist_name, play_count: play_count}
+    end
+  end
+
+  @doc """
+  The artist with the highest total score across `user_id`'s plays - each
+  play scored the same way as in `best_play/1` and credited to every artist
+  listed on it, then summed per artist - or nil if they've never played
+  anything.
+  """
+  def best_artist(user_id) do
+    from(p in Rvrb.Play,
+      left_join: v in Rvrb.PlayVote,
+      on: v.play_id == p.id,
+      where: p.user_id == ^user_id,
+      group_by: p.id,
+      select: %{
+        artist_names: p.artist_names,
+        dopes: fragment("count(*) filter (where ? = 'dope')", v.vote_type),
+        stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)
+      }
+    )
+    |> Rvrb.Repo.all()
+    |> Enum.flat_map(fn play ->
+      score = play.stars * 4 + play.dopes * 1
+      Enum.map(play.artist_names, &{&1, score})
+    end)
+    |> Enum.reduce(%{}, fn {artist, score}, acc -> Map.update(acc, artist, score, &(&1 + score)) end)
+    |> Enum.max_by(fn {_artist, score} -> score end, fn -> nil end)
+    |> case do
+      nil -> nil
+      {artist_name, score} -> %{artist_name: artist_name, score: score}
+    end
   end
 end
