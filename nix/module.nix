@@ -95,6 +95,10 @@ in
 
     services.postgresql = lib.mkIf cfg.database.createLocally {
       enable = true;
+      # Without this, NixOS falls back to a stateVersion-derived default
+      # package, which throws once that major version is dropped from
+      # nixpkgs. mkDefault so an explicit choice elsewhere still wins.
+      package = lib.mkDefault pkgs.postgresql;
       # ensureDBOwnership only grants ownership of a database named the
       # same as the role, so the database here is named after `user`.
       ensureDatabases = [ cfg.user ];
