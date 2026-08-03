@@ -121,6 +121,14 @@ in
         {
           RELEASE_TMP = "/var/lib/rvrb-bot/tmp";
           HOME = "/var/lib/rvrb-bot";
+          # A single bot instance has no need for distributed Erlang; this
+          # also sidesteps nixpkgs' mixRelease stripping the auto-generated
+          # releases/COOKIE file from the (immutable, shared) store path,
+          # which would otherwise make the release fail to boot entirely.
+          # The cookie's value is irrelevant with distribution off, it just
+          # has to be set to something.
+          RELEASE_DISTRIBUTION = "none";
+          RELEASE_COOKIE = "unused-release-distribution-is-none";
         }
         // lib.optionalAttrs cfg.database.createLocally {
           RVRB_DB_NAME = cfg.user;
