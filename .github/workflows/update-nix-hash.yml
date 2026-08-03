@@ -1,0 +1,57 @@
+name: Update mixFodDeps hash
+
+# flake.nix pins mix.lock's Hex dependencies via a fixed-output derivation
+# hash. Whenever mix.lock changes, that hash goes stale and `nix build`
+# fails until it's updated - so do it here instead of by hand.
+on:
+  push:
+    paths:
+      - "mix.lock"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update-hash:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Recompute the mixFodDeps hash
+        run: |
+          set -euo pipefail
+
+          # Force a mismatch so the build error reports the hash that
+          # mix.lock's dependencies actually resolve to right now.
+          sed -i 's#hash = "sha256-[^"]*"#hash = pkgs.lib.fakeHash#' flake.nix
+
+          output="$(nix build .#mixFodDeps --no-link 2>&1 || true)"
+          echo "$output"
+
+          real_hash="$(echo "$output" | awk '/got:/ {print $2}')"
+          if [ -z "$real_hash" ]; then
+            echo "Could not find a 'got: sha256-...' hash in the build output above."
+            exit 1
+          fi
+
+          sed -i "s#hash = pkgs.lib.fakeHash#hash = \"$real_hash\"#" flake.nix
+
+          # Confirm it actually builds with the new hash before committing.
+          nix build .#mixFodDeps --no-link
+
+      - name: Commit and push if the hash changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- flake.nix; then
+            echo "Hash already up to date, nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add flake.nix
+          git commit -m "flake.nix: update mixFodDeps hash for mix.lock changes"
+          git push origin "HEAD:${{ github.ref_name }}"
