@@ -31,6 +31,11 @@
         };
       in
       {
+        # Exposed mainly so CI can target `nix build .#mixFodDeps` directly
+        # to recompute the hash below without also building the (much
+        # slower) full release.
+        packages.mixFodDeps = mixFodDeps;
+
         packages.default = beamPackages.mixRelease {
           pname = "rvrb";
           inherit version mixFodDeps elixir;
