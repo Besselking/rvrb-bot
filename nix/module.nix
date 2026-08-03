@@ -57,14 +57,18 @@ in
       default = false;
       description = ''
         Provision a local PostgreSQL database and role for rvrb via
-        `services.postgresql`. By default this pairs with
-        `database.socketDir`, so the role connects over the Unix socket and
-        relies on peer auth (NixOS's default `services.postgresql`
-        authentication trusts local socket connections from a matching OS
-        user, and `user` here doubles as both) - no password required. If
-        you instead set `settings.RVRB_DB_HOSTNAME` to force a TCP
-        connection, you're responsible for an authentication rule and a
-        `RVRB_DB_PASSWORD` in `environmentFile` yourself.
+        `services.postgresql`. The database is named the same as `user`
+        (not `rvrb_repo`) - `ensureDBOwnership` only grants ownership of a
+        database sharing the role's name, so this module sets
+        `RVRB_DB_NAME` to match automatically. By default this also pairs
+        with `database.socketDir`, so the role connects over the Unix
+        socket and relies on peer auth (NixOS's default
+        `services.postgresql` authentication trusts local socket
+        connections from a matching OS user, and `user` here doubles as
+        both) - no password required. If you instead set
+        `settings.RVRB_DB_HOSTNAME` to force a TCP connection, you're
+        responsible for an authentication rule and a `RVRB_DB_PASSWORD` in
+        `environmentFile` yourself.
       '';
     };
 
@@ -91,7 +95,9 @@ in
 
     services.postgresql = lib.mkIf cfg.database.createLocally {
       enable = true;
-      ensureDatabases = [ "rvrb_repo" ];
+      # ensureDBOwnership only grants ownership of a database named the
+      # same as the role, so the database here is named after `user`.
+      ensureDatabases = [ cfg.user ];
       ensureUsers = [
         {
           name = cfg.user;
@@ -111,6 +117,9 @@ in
         {
           RELEASE_TMP = "/var/lib/rvrb-bot/tmp";
           HOME = "/var/lib/rvrb-bot";
+        }
+        // lib.optionalAttrs cfg.database.createLocally {
+          RVRB_DB_NAME = cfg.user;
         }
         // lib.optionalAttrs (cfg.database.socketDir != null) {
           RVRB_DB_SOCKET_DIR = cfg.database.socketDir;
