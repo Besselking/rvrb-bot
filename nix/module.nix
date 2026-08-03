@@ -129,6 +129,7 @@ in
           # has to be set to something.
           RELEASE_DISTRIBUTION = "none";
           RELEASE_COOKIE = "unused-release-distribution-is-none";
+          RVRB_TZDATA_DIR = "/var/lib/rvrb-bot/tzdata";
         }
         // lib.optionalAttrs cfg.database.createLocally {
           RVRB_DB_NAME = cfg.user;
@@ -143,7 +144,10 @@ in
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = "/var/lib/rvrb-bot";
-        StateDirectory = "rvrb-bot";
+        StateDirectory = [
+          "rvrb-bot"
+          "rvrb-bot/tzdata"
+        ];
         RuntimeDirectory = "rvrb-bot";
         EnvironmentFile = lib.mkIf (cfg.environmentFile != null) cfg.environmentFile;
 

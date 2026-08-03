@@ -36,6 +36,11 @@ if config_env() == :prod do
 
   config :rvrb, Rvrb.Repo, repo_config
 
+  # timex's tzdata dependency defaults to writing its update-tracking files
+  # inside its own compiled priv dir, which is read-only once inside a
+  # release. Point it somewhere writable instead.
+  config :tzdata, :data_dir, System.get_env("RVRB_TZDATA_DIR", System.tmp_dir!())
+
   # Optional: only needed for the Spotify-backed commands.
   if client_id = System.get_env("RVRB_SPOTIFY_CLIENT_ID") do
     config :spotify_ex,
