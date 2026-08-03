@@ -3,9 +3,10 @@ defmodule Html do
   Renders a `chat-table` from `values` (a list of maps/keyword lists) using
   `keys` (a list of `{key, header_name}` pairs) to pick and label columns.
 
-  Pass `title: "..."` in `opts` for a single header cell spanning all
-  columns (e.g. a "so-and-so's stats" title row) instead of one `<th>` per
-  key.
+  Pass `title: "..."` in `opts` for a single header cell (e.g. a
+  "so-and-so's stats" title row) instead of one `<th>` per key. RVRB's
+  chat HTML doesn't honor `colspan`, so the remaining columns are padded
+  out with empty `<th>`s instead of spanning the title cell across them.
   """
   def table(values, keys \\ [], opts \\ []) do
     header =
@@ -15,13 +16,8 @@ defmodule Html do
           ["<thead><tr>", header_names, "</tr></thead>"]
 
         title ->
-          [
-            "<thead><tr><th colspan=\"",
-            Integer.to_string(length(keys)),
-            "\">",
-            title,
-            "</th></tr></thead>"
-          ]
+          padding = List.duplicate("<th></th>", max(length(keys) - 1, 0))
+          ["<thead><tr><th>", title, "</th>", padding, "</tr></thead>"]
       end
 
     rows =

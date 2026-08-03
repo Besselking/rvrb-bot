@@ -167,7 +167,7 @@ defmodule Rvrb.AiAnalyzer do
   end
 
   defp label(level, recent, prior, cadence_ratio) do
-    emoji_and_text(level) <> " (" <> context(recent, prior, cadence_ratio) <> ")"
+    emoji_and_text(level) <> "<br>(" <> context(recent, prior, cadence_ratio) <> ")"
   end
 
   defp emoji_and_text(:likely), do: "🤖 likely AI spam"
@@ -175,16 +175,16 @@ defmodule Rvrb.AiAnalyzer do
   defp emoji_and_text(:unlikely), do: "🎧 looks normal"
 
   defp context(recent, %{count: 0}, _cadence_ratio) do
-    release_breakdown(recent) <> " since #{@since_year}, none before then"
+    release_breakdown(recent) <> "<br>since #{@since_year}, none before then"
   end
 
   defp context(recent, _prior, nil) do
-    release_breakdown(recent) <> " since #{@since_year}"
+    release_breakdown(recent) <> "<br>since #{@since_year}"
   end
 
   defp context(recent, _prior, cadence_ratio) do
     release_breakdown(recent) <>
-      " since #{@since_year}, #{format_ratio(cadence_ratio)}x their pre-#{@since_year} pace"
+      "<br>since #{@since_year}, #{format_ratio(cadence_ratio)}x their pre-#{@since_year} pace"
   end
 
   defp release_breakdown(%{count: 0}), do: "no releases"
