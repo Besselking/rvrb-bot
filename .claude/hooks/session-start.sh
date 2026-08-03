@@ -8,24 +8,59 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
 fi
 
 REPO_DIR="$CLAUDE_PROJECT_DIR"
-ELIXIR_VERSION="1.18.3"
+OTP_VERSION="27.3"
+OTP_DIR="/opt/otp-${OTP_VERSION}"
+ELIXIR_VERSION="1.20.2"
 ELIXIR_DIR="/opt/elixir-${ELIXIR_VERSION}"
 
-# --- System packages: Erlang/OTP runtime + Postgres server/client ---
-if ! command -v erl >/dev/null 2>&1 || ! command -v psql >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
+# --- System packages: build deps for Erlang/OTP + Postgres server/client.
+# mix.exs requires Elixir "~> 1.20", whose precompiled builds only target
+# OTP 27+, and Ubuntu's apt-provided erlang is stuck on OTP 25 - so OTP has
+# to be built from source instead of installed from apt.
+if ! command -v psql >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1 || [ ! -x "${OTP_DIR}/bin/erl" ]; then
   apt-get update -qq
-  apt-get install -y -qq erlang postgresql unzip curl >/dev/null
+  apt-get install -y -qq \
+    build-essential autoconf m4 libncurses-dev libssl-dev \
+    postgresql unzip curl >/dev/null
 fi
 
-# --- Elixir itself: Ubuntu's apt package is ~1.14, but mix.exs requires "~> 1.18",
-# so fetch a precompiled build matching the OTP 25 we just installed via apt.
-if [ ! -x "${ELIXIR_DIR}/bin/elixir" ]; then
-  curl -sSL -o /tmp/elixir-otp-25.zip \
-    "https://github.com/elixir-lang/elixir/releases/download/v${ELIXIR_VERSION}/elixir-otp-25.zip"
-  mkdir -p "${ELIXIR_DIR}"
-  unzip -qo /tmp/elixir-otp-25.zip -d "${ELIXIR_DIR}"
-  rm -f /tmp/elixir-otp-25.zip
+# --- Erlang/OTP: built from source, once per container (cached afterward).
+# Skips the optional GUI/tooling apps (wx, debugger, observer, et, megaco,
+# diameter, jinterface, odbc, docs) this bot never touches, to keep the
+# build reasonably fast.
+if [ ! -x "${OTP_DIR}/bin/erl" ]; then
+  OTP_BUILD_DIR="/tmp/otp-build"
+  rm -rf "$OTP_BUILD_DIR"
+  mkdir -p "$OTP_BUILD_DIR"
+  curl -sSL -o "${OTP_BUILD_DIR}/otp_src.tar.gz" \
+    "https://github.com/erlang/otp/releases/download/OTP-${OTP_VERSION}/otp_src_${OTP_VERSION}.tar.gz"
+  tar xzf "${OTP_BUILD_DIR}/otp_src.tar.gz" -C "$OTP_BUILD_DIR"
+  (
+    cd "${OTP_BUILD_DIR}/otp_src_${OTP_VERSION}"
+    ./configure --prefix="$OTP_DIR" \
+      --without-wx --without-debugger --without-observer --without-et \
+      --without-megaco --without-diameter --without-jinterface \
+      --without-odbc --without-docs >/dev/null
+    make -j"$(nproc)" >/dev/null
+    make install >/dev/null
+  )
+  rm -rf "$OTP_BUILD_DIR"
 fi
+
+# --- Elixir itself: precompiled build matching the OTP major we just built.
+if [ ! -x "${ELIXIR_DIR}/bin/elixir" ]; then
+  curl -sSL -o /tmp/elixir-otp-27.zip \
+    "https://github.com/elixir-lang/elixir/releases/download/v${ELIXIR_VERSION}/elixir-otp-27.zip"
+  mkdir -p "${ELIXIR_DIR}"
+  unzip -qo /tmp/elixir-otp-27.zip -d "${ELIXIR_DIR}"
+  rm -f /tmp/elixir-otp-27.zip
+fi
+
+# Erlang ships many binaries (erl, erlc, escript, dialyzer, ...) - put the
+# whole bin dir on PATH rather than symlinking each one individually.
+export PATH="${OTP_DIR}/bin:${PATH}"
+grep -qxF "export PATH=\"${OTP_DIR}/bin:\$PATH\"" "$CLAUDE_ENV_FILE" 2>/dev/null || \
+  echo "export PATH=\"${OTP_DIR}/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
 
 for bin in elixir elixirc iex mix; do
   ln -sf "${ELIXIR_DIR}/bin/${bin}" "/usr/local/bin/${bin}"
