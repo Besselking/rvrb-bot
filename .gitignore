@@ -26,3 +26,7 @@ rvrb-*.tar
 /.lexical/
 
 /config/*.secret.exs
+
+# nix build output symlinks
+/result
+/result-*

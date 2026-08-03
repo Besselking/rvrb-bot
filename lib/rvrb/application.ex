@@ -11,7 +11,7 @@ defmodule Rvrb.Application do
       # Starts a worker by calling: Rvrb.Worker.start_link(arg)
       # {Rvrb.Worker, arg}
       {Rvrb.WebSocket, Application.fetch_env!(:rvrb, :bot_token)},
-      {Rvrb.GenreServer, "./genres.txt"},
+      {Rvrb.GenreServer, Application.app_dir(:rvrb, "priv/genres.txt")},
       %{
         id: Rvrb.SpotifyServer,
         start: {Rvrb.SpotifyServer, :start_link, []}
