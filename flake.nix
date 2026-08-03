@@ -19,14 +19,12 @@
 
         # Fixed-output derivation fetching every Hex dependency pinned in
         # mix.lock (the vendored `vendor/fresh` path dependency is part of
-        # `src` and needs no separate fetch). The hash below is a
-        # placeholder: run `nix build`, it will fail with the real hash
-        # of the resolved deps, paste that in here.
+        # `src` and needs no separate fetch).
         mixFodDeps = beamPackages.fetchMixDeps {
           pname = "rvrb-deps";
           inherit version;
           src = ./.;
-          hash = pkgs.lib.fakeHash;
+          hash = "sha256-2Tm/bpbSbX59VUDPfLMXOjH/qgbWD4gsenWDHkomGOs=";
         };
       in
       {

@@ -15,9 +15,10 @@ nix build   # -> ./result/bin/rvrb
 nix run
 ```
 
-`mixFodDeps` in `flake.nix` pins the Hex dependencies from `mix.lock` with a
-placeholder hash. The first `nix build` will fail and print the real hash -
-paste it in and build again.
+`mixFodDeps` in `flake.nix` pins the Hex dependencies from `mix.lock` via a
+fixed-output derivation hash. If you change `mix.lock` (add/remove/bump a
+dependency), that hash goes stale - `nix build` will fail and print the new
+one; paste it in and build again.
 
 ### Dev shell
 
