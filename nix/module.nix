@@ -57,11 +57,26 @@ in
       default = false;
       description = ''
         Provision a local PostgreSQL database and role for rvrb via
-        `services.postgresql`. rvrb still connects over TCP (see
-        `RVRB_DB_HOSTNAME`), so you are responsible for an authentication
-        rule (`services.postgresql.authentication`) and a matching
-        `RVRB_DB_PASSWORD` in `environmentFile` - this option only creates
-        the database and role, it does not set a password.
+        `services.postgresql`. By default this pairs with
+        `database.socketDir`, so the role connects over the Unix socket and
+        relies on peer auth (NixOS's default `services.postgresql`
+        authentication trusts local socket connections from a matching OS
+        user, and `user` here doubles as both) - no password required. If
+        you instead set `settings.RVRB_DB_HOSTNAME` to force a TCP
+        connection, you're responsible for an authentication rule and a
+        `RVRB_DB_PASSWORD` in `environmentFile` yourself.
+      '';
+    };
+
+    database.socketDir = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = if cfg.database.createLocally then "/run/postgresql" else null;
+      defaultText = lib.literalExpression ''if config.services.rvrb-bot.database.createLocally then "/run/postgresql" else null'';
+      description = ''
+        Directory holding the PostgreSQL Unix socket. When non-null, rvrb
+        connects via this socket (`RVRB_DB_SOCKET_DIR`) instead of TCP, and
+        `RVRB_DB_PASSWORD` becomes optional. Set to `null` to force a TCP
+        connection via `settings.RVRB_DB_HOSTNAME` instead.
       '';
     };
   };
@@ -92,10 +107,15 @@ in
       wants = [ "network-online.target" ];
       requires = lib.optional cfg.database.createLocally "postgresql.service";
 
-      environment = {
-        RELEASE_TMP = "/var/lib/rvrb-bot/tmp";
-        HOME = "/var/lib/rvrb-bot";
-      } // cfg.settings;
+      environment =
+        {
+          RELEASE_TMP = "/var/lib/rvrb-bot/tmp";
+          HOME = "/var/lib/rvrb-bot";
+        }
+        // lib.optionalAttrs (cfg.database.socketDir != null) {
+          RVRB_DB_SOCKET_DIR = cfg.database.socketDir;
+        }
+        // cfg.settings;
 
       serviceConfig = {
         Type = "exec";
