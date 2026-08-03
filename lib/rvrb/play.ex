@@ -155,7 +155,9 @@ defmodule Rvrb.Play do
       score = play.stars * 4 + play.dopes * 1
       Enum.map(play.artist_names, &{&1, score})
     end)
-    |> Enum.reduce(%{}, fn {artist, score}, acc -> Map.update(acc, artist, score, &(&1 + score)) end)
+    |> Enum.reduce(%{}, fn {artist, score}, acc ->
+      Map.update(acc, artist, score, &(&1 + score))
+    end)
     |> Enum.max_by(fn {_artist, score} -> score end, fn -> nil end)
     |> case do
       nil -> nil
