@@ -13,7 +13,10 @@
       let
         pkgs = import nixpkgs { inherit system; };
         beamPackages = pkgs.beam.packages.erlang;
-        elixir = beamPackages.elixir;
+        # mix.exs requires elixir ~> 1.20; the plain `elixir` alias in
+        # nixpkgs can lag behind and point at an older default (e.g. 1.18),
+        # so pin the versioned attribute explicitly.
+        elixir = beamPackages.elixir_1_20;
 
         version = "0.1.0";
 
@@ -22,7 +25,7 @@
         # `src` and needs no separate fetch).
         mixFodDeps = beamPackages.fetchMixDeps {
           pname = "rvrb-deps";
-          inherit version;
+          inherit version elixir;
           src = ./.;
           hash = "sha256-2Tm/bpbSbX59VUDPfLMXOjH/qgbWD4gsenWDHkomGOs=";
         };
@@ -30,7 +33,7 @@
       {
         packages.default = beamPackages.mixRelease {
           pname = "rvrb";
-          inherit version mixFodDeps;
+          inherit version mixFodDeps elixir;
           src = ./.;
         };
 
