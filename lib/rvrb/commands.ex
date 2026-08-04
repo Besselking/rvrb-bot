@@ -72,7 +72,8 @@ defmodule Rvrb.Commands do
     %{
       name: "stats",
       usage: "\\stats [@user]",
-      description: "Show DJ stats (tracks played, dopes/stars received, history) for yourself or a tagged user.",
+      description:
+        "Show DJ stats (tracks played, dopes/favorites received, favorite DJs and tracks) for yourself or a tagged user.",
       handler: &__MODULE__.stats/3
     }
   ]
@@ -371,32 +372,47 @@ defmodule Rvrb.Commands do
   end
 
   defp render_stats(user, _not_found_message, state) do
-    play_stats = Play.stats_for(user.id)
+    WebSocket.chat(stats_table(user, Play.stats_for(user.id)))
+    {:ok, state}
+  end
+
+  @doc """
+  Renders `user`'s `Rvrb.Play.stats_for/1` map as a chat table, grouped
+  into who they are (Profile), what they've played (Behind the
+  decks) and what they've voted for (In the crowd) - the list had gotten
+  long enough that a flat one was hard to scan.
+
+  RVRB calls a star a star over the wire but a favorite in its UI, so
+  every star-derived label here says "favorite".
+  """
+  def stats_table(user, play_stats) do
     member_since = if user.created_date, do: Timex.from_now(user.created_date), else: "?"
     last_djed = if user.last_djed, do: Timex.from_now(user.last_djed), else: "never"
     has_skipped = if user.received_skip, do: "✅", else: "❌"
 
     rows = [
+      %{section: "Profile"},
       %{label: "Member since", value: member_since},
       %{label: "Last DJed", value: last_djed},
+      %{label: "Used first-time skip", value: has_skipped},
+      %{section: "Behind the decks"},
       %{label: "Tracks played", value: to_string(play_stats.play_count)},
       %{label: "Dopes received", value: to_string(play_stats.dopes_received)},
-      %{label: "Stars received", value: to_string(play_stats.stars_received)},
-      %{label: "Used first-time skip", value: has_skipped},
+      %{label: "Favorites received", value: to_string(play_stats.stars_received)},
       %{label: "Most played track", value: most_played_summary(play_stats.most_played)},
-      %{label: "Highest scoring track", value: best_play_summary(play_stats.best_play)},
+      %{label: "Highest scoring track", value: track_score_summary(play_stats.best_play)},
       %{
         label: "Most played artist",
         value: most_played_artist_summary(play_stats.most_played_artist)
       },
-      %{label: "Highest scoring artist", value: best_artist_summary(play_stats.best_artist)}
+      %{label: "Highest scoring artist", value: artist_score_summary(play_stats.best_artist)},
+      %{section: "In the crowd"},
+      %{label: "Favorite DJ", value: favorite_dj_summary(play_stats.favorite_dj)},
+      %{label: "Favorite track", value: track_score_summary(play_stats.favorite_track)},
+      %{label: "Favorite artist", value: artist_score_summary(play_stats.favorite_artist)}
     ]
 
-    table =
-      Html.table(rows, [{:label, nil}, {:value, nil}], title: "#{display_name(user)}'s stats")
-
-    WebSocket.chat(table)
-    {:ok, state}
+    Html.table(rows, [{:label, nil}, {:value, nil}], title: "#{display_name(user)}'s stats")
   end
 
   defp display_name(%{display_name: display_name}) when display_name not in [nil, ""],
@@ -410,10 +426,10 @@ defmodule Rvrb.Commands do
     "#{track_summary(name, artists)} (#{count}×)"
   end
 
-  defp best_play_summary(nil), do: "—"
+  defp track_score_summary(nil), do: "—"
 
-  defp best_play_summary(%{track_name: name, artist_names: artists, score: score, dopes: dopes, stars: stars}) do
-    "#{track_summary(name, artists)} — #{score} pts (#{dopes} dopes, #{stars} stars)"
+  defp track_score_summary(%{track_name: name, artist_names: artists} = play) do
+    "#{track_summary(name, artists)} — #{score_summary(play)}"
   end
 
   defp track_summary(name, artists) when is_list(artists) and artists != [] do
@@ -428,9 +444,21 @@ defmodule Rvrb.Commands do
     "#{artist_name} (#{count}×)"
   end
 
-  defp best_artist_summary(nil), do: "—"
+  defp artist_score_summary(nil), do: "—"
 
-  defp best_artist_summary(%{artist_name: artist_name, score: score}) do
+  defp artist_score_summary(%{artist_name: artist_name, score: score}) do
     "#{artist_name} — #{score} pts"
   end
+
+  defp favorite_dj_summary(nil), do: "—"
+
+  defp favorite_dj_summary(dj), do: "#{display_name(dj)} — #{score_summary(dj)}"
+
+  # "Star" is what the backend calls them; the room calls them favorites.
+  defp score_summary(%{score: score, dopes: dopes, stars: stars}) do
+    "#{pluralize(score, "pt")} (#{pluralize(dopes, "dope")}, #{pluralize(stars, "favorite")})"
+  end
+
+  defp pluralize(1, noun), do: "1 #{noun}"
+  defp pluralize(count, noun), do: "#{count} #{noun}s"
 end
