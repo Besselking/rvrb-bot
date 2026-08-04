@@ -395,7 +395,7 @@ defmodule Rvrb.Commands do
       %{label: "Member since", value: member_since},
       %{label: "Last DJed", value: last_djed},
       %{label: "Used first-time skip", value: has_skipped},
-      %{section: "Behind the decks"},
+      %{section: "<div class=\"alert\">Behind the decks</div>"},
       %{label: "Tracks played", value: to_string(play_stats.play_count)},
       %{label: "Dopes received", value: to_string(play_stats.dopes_received)},
       %{label: "Favorites received", value: to_string(play_stats.stars_received)},
@@ -406,7 +406,7 @@ defmodule Rvrb.Commands do
         value: most_played_artist_summary(play_stats.most_played_artist)
       },
       %{label: "Highest scoring artist", value: artist_score_summary(play_stats.best_artist)},
-      %{section: "In the crowd"},
+      %{section: "<div class=\"alert\">In the crowd</div>"},
       %{label: "Favorite DJ", value: favorite_dj_summary(play_stats.favorite_dj)},
       %{label: "Favorite track", value: track_score_summary(play_stats.favorite_track)},
       %{label: "Favorite artist", value: artist_score_summary(play_stats.favorite_artist)}
