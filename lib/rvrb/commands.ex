@@ -51,12 +51,6 @@ defmodule Rvrb.Commands do
       handler: &__MODULE__.queue/3
     },
     %{
-      name: "whisperback",
-      usage: "\\whisperback",
-      description: "Whisper a test message back to you.",
-      handler: &__MODULE__.whisperback/3
-    },
-    %{
       name: "join",
       usage: "\\join",
       description: "Have the bot join the DJ queue.",
@@ -237,12 +231,6 @@ defmodule Rvrb.Commands do
       WebSocket.chat("Sorry, you're not allowed to queue tracks")
       {:ok, state}
     end
-  end
-
-  def whisperback(_args, %{"userId" => user_id}, state) do
-    user = User.get(user_id)
-    WebSocket.chat("/w @#{user.display_name} hi there!")
-    {:ok, state}
   end
 
   def join(_args, _params, state) do
