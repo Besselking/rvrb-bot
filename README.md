@@ -34,13 +34,21 @@ nix develop   # elixir, erlang, postgresql on PATH
 
   services.rvrb-bot = {
     enable = true;
-    environmentFile = "/run/secrets/rvrb-bot.env";
+    environmentFile = "/var/lib/rvrb-bot/rvrb-bot.env";
   };
 }
 ```
 
-`environmentFile` (keep it out of the Nix store, e.g. via agenix/sops-nix)
-must set at least:
+`environmentFile` must point at a real, persistent path - keep it out of the
+Nix store (world-readable) and **not** under `/run` (tmpfs, wiped on every
+reboot). `/var/lib/rvrb-bot/rvrb-bot.env` (create it with `install -m 0400
+-o rvrb -g rvrb`) works well since that directory already belongs to the
+service. If you manage secrets with agenix/sops-nix instead, point this at
+wherever those decrypt to (sops-nix's default, `/run/secrets/<name>`, is
+fine there specifically because sops-nix re-creates it on every activation -
+it just doesn't work for a file you place by hand).
+
+It must set at least:
 
 ```
 RVRB_BOT_TOKEN=...

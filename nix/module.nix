@@ -33,8 +33,13 @@ in
         Path to an EnvironmentFile (see systemd.exec(5)) holding secrets:
         at minimum `RVRB_BOT_TOKEN`, `RVRB_DB_USERNAME` and
         `RVRB_DB_PASSWORD`; optionally `RVRB_SPOTIFY_CLIENT_ID` and
-        `RVRB_SPOTIFY_SECRET_KEY`. Keep this out of the Nix store (e.g. via
-        agenix/sops-nix), mode 0400, owned by `services.rvrb-bot.user`.
+        `RVRB_SPOTIFY_SECRET_KEY`. Keep this out of the Nix store, mode
+        0400, owned by `services.rvrb-bot.user` - e.g.
+        `/var/lib/rvrb-bot/rvrb-bot.env`, or wherever agenix/sops-nix
+        decrypts it to. Do not put it under `/run` unless a tool like
+        sops-nix is actually re-creating it there on every activation -
+        plain `/run` is tmpfs and a hand-placed file will vanish on
+        reboot.
       '';
     };
 
