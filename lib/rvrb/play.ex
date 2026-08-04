@@ -15,6 +15,12 @@ defmodule Rvrb.Play do
 
   import Ecto.Query
 
+  @star_points 4
+  @dope_points 1
+
+  # The vote types that count toward a score - the rest (boofstar, nope) don't.
+  @scoring_vote_types ~w[dope star]
+
   schema "plays" do
     belongs_to :user, Rvrb.User
     field :spotify_track_id, :string
@@ -47,6 +53,8 @@ defmodule Rvrb.Play do
 
   @doc """
   Play-count and dope/star totals for `user_id`, for the `\\stats` command.
+  Covers both sides of the room: what `user_id` earned as a DJ, and what
+  they handed out as a listener (the `favorite_*` entries).
   """
   def stats_for(user_id) do
     play_count =
@@ -71,7 +79,10 @@ defmodule Rvrb.Play do
       most_played: most_played(user_id),
       best_play: best_play(user_id),
       most_played_artist: most_played_artist(user_id),
-      best_artist: best_artist(user_id)
+      best_artist: best_artist(user_id),
+      favorite_dj: favorite_dj(user_id),
+      favorite_track: favorite_track(user_id),
+      favorite_artist: favorite_artist(user_id)
     }
   end
 
@@ -111,7 +122,7 @@ defmodule Rvrb.Play do
       }
     )
     |> Rvrb.Repo.all()
-    |> Enum.map(&Map.put(&1, :score, &1.stars * 4 + &1.dopes * 1))
+    |> Enum.map(&with_score/1)
     |> Enum.max_by(& &1.score, fn -> nil end)
   end
 
@@ -152,9 +163,100 @@ defmodule Rvrb.Play do
     )
     |> Rvrb.Repo.all()
     |> Enum.flat_map(fn play ->
-      score = play.stars * 4 + play.dopes * 1
-      Enum.map(play.artist_names, &{&1, score})
+      Enum.map(play.artist_names, &{&1, score(play)})
     end)
+    |> top_artist_by_score()
+  end
+
+  @doc """
+  The DJ whose plays `user_id` has given the most points to, scored the
+  same way as `best_play/1` but counting only the votes `user_id` cast
+  themselves. Their own plays don't count - you can't be your own
+  favorite DJ - and nil comes back if they've never doped or starred
+  anyone.
+  """
+  def favorite_dj(user_id) do
+    from(v in Rvrb.PlayVote,
+      join: p in Rvrb.Play,
+      on: v.play_id == p.id,
+      join: u in Rvrb.User,
+      on: p.user_id == u.id,
+      where: ^votes_given_by(user_id),
+      group_by: [u.id, u.display_name, u.user_name],
+      select: %{
+        display_name: u.display_name,
+        user_name: u.user_name,
+        dopes: fragment("count(*) filter (where ? = 'dope')", v.vote_type),
+        stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)
+      }
+    )
+    |> Rvrb.Repo.all()
+    |> Enum.map(&with_score/1)
+    |> Enum.max_by(& &1.score, fn -> nil end)
+  end
+
+  @doc """
+  The track `user_id` has given the most points to across everyone else's
+  plays of it, or nil if they've never doped or starred anything.
+  """
+  def favorite_track(user_id) do
+    from(v in Rvrb.PlayVote,
+      join: p in Rvrb.Play,
+      on: v.play_id == p.id,
+      where: ^votes_given_by(user_id),
+      group_by: [p.spotify_track_id, p.track_name, p.artist_names],
+      select: %{
+        track_name: p.track_name,
+        artist_names: p.artist_names,
+        dopes: fragment("count(*) filter (where ? = 'dope')", v.vote_type),
+        stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)
+      }
+    )
+    |> Rvrb.Repo.all()
+    |> Enum.map(&with_score/1)
+    |> Enum.max_by(& &1.score, fn -> nil end)
+  end
+
+  @doc """
+  The artist `user_id` has given the most points to, crediting every
+  artist listed on a play they voted on, or nil if they've never doped or
+  starred anything.
+  """
+  def favorite_artist(user_id) do
+    from(v in Rvrb.PlayVote,
+      join: p in Rvrb.Play,
+      on: v.play_id == p.id,
+      where: ^votes_given_by(user_id),
+      select: %{artist_names: p.artist_names, vote_type: v.vote_type}
+    )
+    |> Rvrb.Repo.all()
+    |> Enum.flat_map(fn vote ->
+      Enum.map(vote.artist_names, &{&1, vote_points(vote.vote_type)})
+    end)
+    |> top_artist_by_score()
+  end
+
+  # Narrows the "favorite" queries - which all join a vote `v` to the play
+  # `p` it was cast on - to the scoring votes `user_id` gave out on
+  # somebody else's play, as opposed to the ones they got.
+  defp votes_given_by(user_id) do
+    dynamic(
+      [v, p],
+      v.voter_user_id == ^user_id and p.user_id != ^user_id and
+        v.vote_type in ^@scoring_vote_types
+    )
+  end
+
+  defp with_score(counts), do: Map.put(counts, :score, score(counts))
+
+  defp score(%{stars: stars, dopes: dopes}), do: stars * @star_points + dopes * @dope_points
+
+  defp vote_points("star"), do: @star_points
+  defp vote_points("dope"), do: @dope_points
+  defp vote_points(_), do: 0
+
+  defp top_artist_by_score(artist_scores) do
+    artist_scores
     |> Enum.reduce(%{}, fn {artist, score}, acc ->
       Map.update(acc, artist, score, &(&1 + score))
     end)
