@@ -31,8 +31,8 @@ defmodule Rvrb.AiAnalyzer do
   @since_year 2024
 
   # Track-weighted volume since @since_year at/above which the verdict escalates.
-  @spam_track_threshold 40
-  @prolific_track_threshold 15
+  @spam_track_threshold 60
+  @prolific_track_threshold 40
   # A single release can't contribute more than this many tracks to its own
   # score, so one big (legitimate) deluxe edition can't dominate the count
   # the way repeated, smaller releases do.
