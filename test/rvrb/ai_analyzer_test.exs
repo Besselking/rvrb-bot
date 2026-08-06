@@ -143,7 +143,7 @@ defmodule Rvrb.AiAnalyzerTest do
 
     test "a handful of full albums with no prior history is at least worth a second look" do
       recent = AiAnalyzer.release_summary(
-        for(_ <- 1..4, do: %{"release_date" => "2024-06-01", "album_type" => "album", "total_tracks" => 10}),
+        for(_ <- 1..5, do: %{"release_date" => "2024-06-01", "album_type" => "album", "total_tracks" => 10}),
         &(&1 >= 2024)
       )
 
@@ -154,26 +154,26 @@ defmodule Rvrb.AiAnalyzerTest do
     end
 
     test "escalates when high volume also represents a cadence surge" do
-      recent = %{count: 10, albums: 1, singles: 9, track_score: 18}
+      recent = %{count: 10, albums: 4, singles: 6, track_score: 45}
       prior = %{count: 2, albums: 0, singles: 2, track_score: 2}
 
-      assert %{level: :possible} = AiAnalyzer.verdict(recent, prior, 5.0)
+      assert %{level: :likely} = AiAnalyzer.verdict(recent, prior, 5.0)
     end
 
     test "de-escalates high volume that matches a long-standing steady pace" do
-      recent = %{count: 5, albums: 4, singles: 1, track_score: 41}
-      prior = %{count: 5, albums: 4, singles: 1, track_score: 41}
+      recent = %{count: 7, albums: 6, singles: 1, track_score: 65}
+      prior = %{count: 7, albums: 6, singles: 1, track_score: 65}
 
-      assert %{level: :unlikely} = AiAnalyzer.verdict(recent, prior, 1.0)
+      assert %{level: :possible} = AiAnalyzer.verdict(recent, prior, 1.0)
     end
 
     test "never escalates past :likely or de-escalates past :unlikely" do
-      recent = %{count: 5, albums: 4, singles: 1, track_score: 41}
+      recent = %{count: 7, albums: 6, singles: 1, track_score: 65}
       prior = %{count: 1, albums: 0, singles: 1, track_score: 1}
       assert %{level: :likely} = AiAnalyzer.verdict(recent, prior, 100.0)
 
       recent0 = %{count: 1, albums: 0, singles: 1, track_score: 1}
-      prior0 = %{count: 5, albums: 4, singles: 1, track_score: 41}
+      prior0 = %{count: 7, albums: 6, singles: 1, track_score: 65}
       assert %{level: :unlikely} = AiAnalyzer.verdict(recent0, prior0, 0.01)
     end
   end

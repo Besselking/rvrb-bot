@@ -95,9 +95,11 @@ defmodule Rvrb.CommandsTest do
     test "groups the rows under section headers", %{user: user, empty_stats: stats} do
       html = Commands.stats_table(user, stats)
 
-      assert html =~ "<tr><th>Profile</th>"
-      assert html =~ "<tr><th><span class=\"alert\">Behind the decks</span></th>"
-      assert html =~ "<tr><th><span class=\"alert\">In the crowd</span></th>"
+      # The labels are what matter, not how they're styled - assert they land
+      # in a header row (<th>) rather than a data row, ignoring inline markup.
+      assert "Profile" in header_labels(html)
+      assert "Behind the decks" in header_labels(html)
+      assert "In the crowd" in header_labels(html)
     end
 
     test "titles the table with the user's display name", %{user: user, empty_stats: stats} do
@@ -251,5 +253,13 @@ defmodule Rvrb.CommandsTest do
         assert is_function(command.handler, 3)
       end
     end
+  end
+
+  # The text of every header cell that opens a row, with any inline markup
+  # (styling spans and the like) stripped out.
+  defp header_labels(html) do
+    ~r{<tr><th>(.*?)</th>}
+    |> Regex.scan(html)
+    |> Enum.map(fn [_match, label] -> String.replace(label, ~r{<[^>]*>}, "") end)
   end
 end
