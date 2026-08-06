@@ -12,6 +12,8 @@ defmodule Rvrb.Commands do
   alias Rvrb.AiAnalyzer
   alias Rvrb.GenreServer
   alias Rvrb.Play
+  alias Rvrb.PlayTracker
+  alias Rvrb.Rotation
   alias Rvrb.SpotifyServer
   alias Rvrb.SpotifyUrl
   alias Rvrb.User
@@ -37,6 +39,13 @@ defmodule Rvrb.Commands do
       usage: "\\djs",
       description: "Show the DJ queue with last-DJed time, membership date and skip status.",
       handler: &__MODULE__.djs/3
+    },
+    %{
+      name: "rotation",
+      usage: "\\rotation",
+      description:
+        "Estimate how long a lap of the DJ queue takes, and when you're next up if you're DJing.",
+      handler: &__MODULE__.rotation/3
     },
     %{
       name: "spin",
@@ -190,6 +199,102 @@ defmodule Rvrb.Commands do
 
     WebSocket.chat(table)
     {:ok, state}
+  end
+
+  def rotation(_args, params, state) do
+    case state.djs do
+      [] ->
+        WebSocket.chat("Nobody's DJing right now, so there's no rotation to estimate.")
+
+      djs ->
+        estimate =
+          Rotation.estimate(djs, dj_averages(djs),
+            remaining_ms: remaining_track_ms(state),
+            fallback_ms: Play.average_duration()
+          )
+
+        WebSocket.chat(rotation_table(estimate, User.get_users(djs), params["userId"]))
+    end
+
+    {:ok, state}
+  end
+
+  # Average track length per DJ, keyed by the RVRB ids `state.djs` uses
+  # rather than the internal user ids the plays table is keyed by. DJs the
+  # bot has never seen as users map to nil, which `Rvrb.Rotation` reads as
+  # "no history, use the fallback".
+  defp dj_averages(djs) do
+    user_ids = User.get_ids(djs)
+    averages = Play.average_durations(Map.values(user_ids))
+
+    Map.new(user_ids, fn {rvrb_id, user_id} -> {rvrb_id, averages[user_id]} end)
+  end
+
+  # How much of the current track is left, or nil if we can't tell - the
+  # track carried no duration, or the bot came up mid-track and never saw
+  # this one start.
+  defp remaining_track_ms(state) do
+    started_at = Map.get(state, :current_track_started_at)
+    duration_ms = PlayTracker.duration_ms(Map.get(state, :current_track))
+
+    if is_integer(started_at) and is_integer(duration_ms) do
+      max(duration_ms - (System.monotonic_time(:millisecond) - started_at), 0)
+    end
+  end
+
+  @doc """
+  Renders an `Rvrb.Rotation.estimate/3` result as a chat table, using
+  `dj_map` (from `Rvrb.User.get_users/1`) for names, and closes with where
+  `user_id` stands in the queue.
+
+  Every number here is a guess built on averages, so the whole table is
+  hedged with "≈" - a DJ who follows a 90 second interlude with a 12
+  minute live set will blow through any estimate we print.
+  """
+  def rotation_table(%{entries: entries, total_ms: total_ms} = estimate, dj_map, user_id) do
+    rows =
+      for entry <- entries do
+        %{
+          dj: dj_label(entry, dj_map),
+          track_length: track_length_label(entry),
+          next_play: "≈ #{Rotation.format_ms(entry.wait_ms)}"
+        }
+      end
+
+    table =
+      Html.table(
+        rows,
+        [{:dj, "DJ"}, {:track_length, "Avg track"}, {:next_play, "Next play in"}],
+        title: "DJ rotation - one lap ≈ #{Rotation.format_ms(total_ms)}"
+      )
+
+    table <> "<br/>" <> your_turn_line(estimate, user_id)
+  end
+
+  defp dj_label(%{dj: dj, current?: true}, dj_map), do: "▶ #{dj_name(dj_map, dj)}"
+  defp dj_label(%{dj: dj}, dj_map), do: dj_name(dj_map, dj)
+
+  defp dj_name(dj_map, dj), do: User.get_name(dj_map, dj) || "someone"
+
+  defp track_length_label(%{duration_ms: duration_ms, measured?: false}) do
+    "#{Rotation.format_ms(duration_ms)} (guess)"
+  end
+
+  defp track_length_label(%{duration_ms: duration_ms, play_count: play_count}) do
+    "#{Rotation.format_ms(duration_ms)} (over #{pluralize(play_count, "play")})"
+  end
+
+  defp your_turn_line(estimate, user_id) do
+    case Rotation.entry_for(estimate, user_id) do
+      nil ->
+        "You're not in the DJ queue, so there's nothing lined up for you."
+
+      %{current?: true, wait_ms: wait_ms} ->
+        "You're playing right now - you're back up in ≈ #{Rotation.format_ms(wait_ms)}."
+
+      %{wait_ms: wait_ms} ->
+        "You're up in ≈ #{Rotation.format_ms(wait_ms)}."
+    end
   end
 
   def spin(_args, _params, state) do

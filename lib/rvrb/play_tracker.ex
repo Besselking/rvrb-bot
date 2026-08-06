@@ -42,9 +42,29 @@ defmodule Rvrb.PlayTracker do
       track_name: track["name"],
       artist_names: Enum.map(artists, & &1["name"]),
       spotify_artist_ids: Enum.map(artists, & &1["id"]),
+      duration_ms: duration_ms(track),
       played_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
     }
   end
+
+  @doc """
+  Track length in milliseconds from a raw RVRB track payload, or `nil` if
+  it doesn't carry one.
+
+  RVRB passes Spotify's track object through, so `duration_ms` is the key
+  that's normally there; a bare `duration` is accepted as a fallback, in
+  seconds if it's too small to plausibly be milliseconds (under a second
+  would be no track at all).
+  """
+  def duration_ms(track) when is_map(track) do
+    case track["duration_ms"] || track["duration"] do
+      duration when is_number(duration) and duration >= 1000 -> round(duration)
+      duration when is_number(duration) and duration > 0 -> round(duration * 1000)
+      _missing -> nil
+    end
+  end
+
+  def duration_ms(_track), do: nil
 
   @doc """
   Syncs `play_votes` for `play_id` to the room's current vote state, from

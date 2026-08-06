@@ -30,6 +30,38 @@ defmodule Rvrb.PlayTrackerTest do
       assert attrs.artist_names == []
       assert attrs.spotify_artist_ids == []
     end
+
+    test "captures the track length, and leaves it nil when the payload has none" do
+      assert PlayTracker.track_attrs(%{"name" => "T", "duration_ms" => 213_000}, 1).duration_ms ==
+               213_000
+
+      assert PlayTracker.track_attrs(%{"name" => "T"}, 1).duration_ms == nil
+    end
+  end
+
+  describe "duration_ms/1" do
+    test "reads Spotify's duration_ms" do
+      assert PlayTracker.duration_ms(%{"duration_ms" => 213_000}) == 213_000
+    end
+
+    test "falls back to a bare duration in milliseconds" do
+      assert PlayTracker.duration_ms(%{"duration" => 213_000}) == 213_000
+    end
+
+    test "reads a bare duration too small to be milliseconds as seconds" do
+      assert PlayTracker.duration_ms(%{"duration" => 213}) == 213_000
+    end
+
+    test "rounds a fractional duration" do
+      assert PlayTracker.duration_ms(%{"duration_ms" => 213_000.6}) == 213_001
+    end
+
+    test "returns nil for a missing, zero or non-numeric duration" do
+      assert PlayTracker.duration_ms(%{}) == nil
+      assert PlayTracker.duration_ms(%{"duration_ms" => 0}) == nil
+      assert PlayTracker.duration_ms(%{"duration_ms" => "3:33"}) == nil
+      assert PlayTracker.duration_ms(nil) == nil
+    end
   end
 
   describe "desired_votes/2" do
