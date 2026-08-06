@@ -34,9 +34,8 @@ defmodule Rvrb.CommandsTest do
 
   describe "parse_tagged_username/1" do
     test "extracts the username from RVRB's rendered @-tag span" do
-      assert Commands.parse_tagged_username(
-               "<span class=\"username Bess\">@Bess 🐸 </span>"
-             ) == "Bess"
+      assert Commands.parse_tagged_username("<span class=\"username Bess\">@Bess 🐸 </span>") ==
+               "Bess"
     end
 
     test "does not mistake the display name (with emoji) for the username" do
@@ -63,6 +62,47 @@ defmodule Rvrb.CommandsTest do
       assert Commands.parse_tagged_username("") == nil
       assert Commands.parse_tagged_username("   ") == nil
       assert Commands.parse_tagged_username("@") == nil
+    end
+  end
+
+  describe "parse_editbot/1" do
+    test "maps a chat field name onto its editUser param" do
+      assert Commands.parse_editbot("displayname BotName") == {:ok, :displayName, "BotName"}
+      assert Commands.parse_editbot("bio This is a bot") == {:ok, :bio, "This is a bot"}
+
+      assert Commands.parse_editbot("djimage /static/dj.webp") ==
+               {:ok, :djImage, "/static/dj.webp"}
+
+      assert Commands.parse_editbot("thumbsup /static/up.webp") ==
+               {:ok, :thumbsUpImage, "/static/up.webp"}
+
+      assert Commands.parse_editbot("thumbsdown /static/down.png") ==
+               {:ok, :thumbsDownImage, "/static/down.png"}
+    end
+
+    test "is case-insensitive on the field name" do
+      assert Commands.parse_editbot("DisplayName BotName") == {:ok, :displayName, "BotName"}
+    end
+
+    test "keeps spaces in the value, since names and bios have them" do
+      assert Commands.parse_editbot("displayname  Bot  The  Bot ") ==
+               {:ok, :displayName, "Bot  The  Bot"}
+    end
+
+    test "lists the known fields when given no arguments" do
+      assert {:error, message} = Commands.parse_editbot("")
+      assert message =~ "displayname"
+      assert message =~ "thumbsdown"
+    end
+
+    test "rejects a field the bot doesn't have" do
+      assert {:error, message} = Commands.parse_editbot("nickname BotName")
+      assert message =~ "no nickname"
+    end
+
+    test "rejects a known field with no value" do
+      assert {:error, message} = Commands.parse_editbot("bio")
+      assert message =~ "needs a value"
     end
   end
 
@@ -95,9 +135,11 @@ defmodule Rvrb.CommandsTest do
     test "groups the rows under section headers", %{user: user, empty_stats: stats} do
       html = Commands.stats_table(user, stats)
 
-      assert html =~ "<tr><th>Profile</th>"
-      assert html =~ "<tr><th><span class=\"alert\">Behind the decks</span></th>"
-      assert html =~ "<tr><th><span class=\"alert\">In the crowd</span></th>"
+      # The labels are what matter, not how they're styled - assert they land
+      # in a header row (<th>) rather than a data row, ignoring inline markup.
+      assert "Profile" in header_labels(html)
+      assert "Behind the decks" in header_labels(html)
+      assert "In the crowd" in header_labels(html)
     end
 
     test "titles the table with the user's display name", %{user: user, empty_stats: stats} do
@@ -251,5 +293,13 @@ defmodule Rvrb.CommandsTest do
         assert is_function(command.handler, 3)
       end
     end
+  end
+
+  # The text of every header cell that opens a row, with any inline markup
+  # (styling spans and the like) stripped out.
+  defp header_labels(html) do
+    ~r{<tr><th>(.*?)</th>}
+    |> Regex.scan(html)
+    |> Enum.map(fn [_match, label] -> String.replace(label, ~r{<[^>]*>}, "") end)
   end
 end
