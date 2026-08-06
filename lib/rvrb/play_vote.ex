@@ -20,9 +20,9 @@ defmodule Rvrb.PlayVote do
   import Ecto.Query
 
   schema "play_votes" do
-    belongs_to :play, Rvrb.Play
-    belongs_to :voter, Rvrb.User, foreign_key: :voter_user_id
-    field :vote_type, :string
+    belongs_to(:play, Rvrb.Play)
+    belongs_to(:voter, Rvrb.User, foreign_key: :voter_user_id)
+    field(:vote_type, :string)
   end
 
   def changeset(vote, params \\ %{}) do

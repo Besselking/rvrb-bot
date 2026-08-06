@@ -134,7 +134,8 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
-  def handle_pushChannelMessage(%{"payload" => payload} = params, state) when is_binary(payload) do
+  def handle_pushChannelMessage(%{"payload" => payload} = params, state)
+      when is_binary(payload) do
     case Commands.handle(payload, params, state) do
       :not_a_command ->
         IO.puts("pushChannelMessage! #{inspect(params)}")

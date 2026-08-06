@@ -66,8 +66,13 @@ defmodule Rvrb.AiAnalyzerTest do
     end
 
     test "a bunch of one-track singles scores much lower than a couple of albums" do
-      singles = for _ <- 1..9, do: %{"release_date" => "2024-01-01", "album_type" => "single", "total_tracks" => 1}
-      albums = for _ <- 1..3, do: %{"release_date" => "2024-01-01", "album_type" => "album", "total_tracks" => 10}
+      singles =
+        for _ <- 1..9,
+            do: %{"release_date" => "2024-01-01", "album_type" => "single", "total_tracks" => 1}
+
+      albums =
+        for _ <- 1..3,
+            do: %{"release_date" => "2024-01-01", "album_type" => "album", "total_tracks" => 10}
 
       singles_summary = AiAnalyzer.release_summary(singles, &(&1 >= 2024))
       albums_summary = AiAnalyzer.release_summary(albums, &(&1 >= 2024))
@@ -129,10 +134,14 @@ defmodule Rvrb.AiAnalyzerTest do
 
   describe "verdict/3" do
     test "9 one-track singles since the cutoff (and none before) looks normal" do
-      recent = AiAnalyzer.release_summary(
-        for(_ <- 1..9, do: %{"release_date" => "2024-06-01", "album_type" => "single", "total_tracks" => 1}),
-        &(&1 >= 2024)
-      )
+      recent =
+        AiAnalyzer.release_summary(
+          for(
+            _ <- 1..9,
+            do: %{"release_date" => "2024-06-01", "album_type" => "single", "total_tracks" => 1}
+          ),
+          &(&1 >= 2024)
+        )
 
       prior = %{count: 0, albums: 0, singles: 0, track_score: 0}
 
@@ -142,10 +151,14 @@ defmodule Rvrb.AiAnalyzerTest do
     end
 
     test "a handful of full albums with no prior history is at least worth a second look" do
-      recent = AiAnalyzer.release_summary(
-        for(_ <- 1..5, do: %{"release_date" => "2024-06-01", "album_type" => "album", "total_tracks" => 10}),
-        &(&1 >= 2024)
-      )
+      recent =
+        AiAnalyzer.release_summary(
+          for(
+            _ <- 1..5,
+            do: %{"release_date" => "2024-06-01", "album_type" => "album", "total_tracks" => 10}
+          ),
+          &(&1 >= 2024)
+        )
 
       prior = %{count: 0, albums: 0, singles: 0, track_score: 0}
 

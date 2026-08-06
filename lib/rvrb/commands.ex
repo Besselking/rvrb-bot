@@ -439,7 +439,10 @@ defmodule Rvrb.Commands do
   def stats(args, _params, state) do
     case parse_tagged_username(args) do
       nil ->
-        WebSocket.chat("Tag someone with @ to see their stats, or use \\stats alone for your own.")
+        WebSocket.chat(
+          "Tag someone with @ to see their stats, or use \\stats alone for your own."
+        )
+
         {:ok, state}
 
       username ->

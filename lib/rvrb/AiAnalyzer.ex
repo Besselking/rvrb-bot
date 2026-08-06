@@ -123,7 +123,12 @@ defmodule Rvrb.AiAnalyzer do
   cadence before it. Returns a ratio (recent score/year ÷ prior score/year),
   or `nil` when there's no prior release to establish a baseline against.
   """
-  def cadence_ratio(prior_score, earliest_year, recent_score, current_year \\ Date.utc_today().year)
+  def cadence_ratio(
+        prior_score,
+        earliest_year,
+        recent_score,
+        current_year \\ Date.utc_today().year
+      )
 
   def cadence_ratio(prior_score, _earliest_year, _recent_score, _current_year)
       when prior_score <= 0,
@@ -156,8 +161,13 @@ defmodule Rvrb.AiAnalyzer do
   defp base_level(_track_score), do: :unlikely
 
   defp adjust_for_cadence(level, nil), do: level
-  defp adjust_for_cadence(level, ratio) when ratio >= @cadence_surge_multiplier, do: shift(level, 1)
-  defp adjust_for_cadence(level, ratio) when ratio <= @cadence_steady_multiplier, do: shift(level, -1)
+
+  defp adjust_for_cadence(level, ratio) when ratio >= @cadence_surge_multiplier,
+    do: shift(level, 1)
+
+  defp adjust_for_cadence(level, ratio) when ratio <= @cadence_steady_multiplier,
+    do: shift(level, -1)
+
   defp adjust_for_cadence(level, _ratio), do: level
 
   defp shift(level, delta) do

@@ -22,14 +22,14 @@ defmodule Rvrb.Play do
   @scoring_vote_types ~w[dope star]
 
   schema "plays" do
-    belongs_to :user, Rvrb.User
-    field :spotify_track_id, :string
-    field :track_name, :string
-    field :artist_names, {:array, :string}, default: []
-    field :spotify_artist_ids, {:array, :string}, default: []
-    field :duration_ms, :integer
-    field :played_at, :naive_datetime
-    has_many :votes, Rvrb.PlayVote
+    belongs_to(:user, Rvrb.User)
+    field(:spotify_track_id, :string)
+    field(:track_name, :string)
+    field(:artist_names, {:array, :string}, default: [])
+    field(:spotify_artist_ids, {:array, :string}, default: [])
+    field(:duration_ms, :integer)
+    field(:played_at, :naive_datetime)
+    has_many(:votes, Rvrb.PlayVote)
   end
 
   def changeset(play, params \\ %{}) do
