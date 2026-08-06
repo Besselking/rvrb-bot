@@ -82,6 +82,11 @@ defmodule Rvrb.WebSocket do
         debug_djs: true,
         current_track: %{},
         current_play_id: nil,
+        # Monotonic ms at which the current track started, so `\rotation`
+        # can subtract the elapsed part of it from its estimate. Monotonic
+        # rather than wall clock because it's only ever used as an
+        # interval, and nil until we've actually seen a track start.
+        current_track_started_at: nil,
         queue: []
       },
       name: {:local, Connection}
@@ -268,7 +273,14 @@ defmodule Rvrb.WebSocket do
     dope()
 
     play_id = PlayTracker.record(state.djs, track)
-    {:ok, %{state | current_track: track, current_play_id: play_id}}
+
+    {:ok,
+     %{
+       state
+       | current_track: track,
+         current_play_id: play_id,
+         current_track_started_at: System.monotonic_time(:millisecond)
+     }}
   end
 
   def handle_message(
@@ -280,7 +292,16 @@ defmodule Rvrb.WebSocket do
     # IO.puts("playChannelTrack! #{inspect(track)}")
 
     play_id = PlayTracker.record(state.djs, track)
-    {:ok, %{state | doped: false, starred: false, current_track: track, current_play_id: play_id}}
+
+    {:ok,
+     %{
+       state
+       | doped: false,
+         starred: false,
+         current_track: track,
+         current_play_id: play_id,
+         current_track_started_at: System.monotonic_time(:millisecond)
+     }}
   end
 
   def handle_message(%{"method" => "updateChannelUserStatus"}, state) do

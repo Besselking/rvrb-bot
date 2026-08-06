@@ -27,6 +27,7 @@ defmodule Rvrb.Play do
     field :track_name, :string
     field :artist_names, {:array, :string}, default: []
     field :spotify_artist_ids, {:array, :string}, default: []
+    field :duration_ms, :integer
     field :played_at, :naive_datetime
     has_many :votes, Rvrb.PlayVote
   end
@@ -39,6 +40,7 @@ defmodule Rvrb.Play do
       :track_name,
       :artist_names,
       :spotify_artist_ids,
+      :duration_ms,
       :played_at
     ])
     |> Ecto.Changeset.validate_required([:user_id, :track_name, :played_at])
@@ -85,6 +87,45 @@ defmodule Rvrb.Play do
       favorite_artist: favorite_artist(user_id)
     }
   end
+
+  @doc """
+  Average track length (in milliseconds) per user, for the given internal
+  `user_ids`, as `%{user_id => %{avg_ms: integer, play_count: integer}}`.
+  Backs the `\\rotation` estimate.
+
+  Users with no timed plays are simply absent from the result rather than
+  present with a nil average, so the caller can tell "never played" apart
+  from "played, but we don't know how long for" and pick its own fallback.
+  """
+  def average_durations(user_ids) do
+    from(p in Rvrb.Play,
+      where: p.user_id in ^user_ids and not is_nil(p.duration_ms),
+      group_by: p.user_id,
+      select: {p.user_id, avg(p.duration_ms), count(p.id)}
+    )
+    |> Rvrb.Repo.all()
+    |> Map.new(fn {user_id, avg_ms, play_count} ->
+      {user_id, %{avg_ms: to_ms(avg_ms), play_count: play_count}}
+    end)
+  end
+
+  @doc """
+  Average track length (in milliseconds) across every timed play by
+  anyone, or nil if nothing timed has been recorded yet. Used as the
+  stand-in for a DJ we have no history for - the room's own taste in track
+  length is a better guess than a hardcoded number.
+  """
+  def average_duration do
+    from(p in Rvrb.Play, where: not is_nil(p.duration_ms), select: avg(p.duration_ms))
+    |> Rvrb.Repo.one()
+    |> to_ms()
+  end
+
+  # Postgres' avg() over an integer column comes back as a Decimal.
+  defp to_ms(nil), do: nil
+  defp to_ms(%Decimal{} = avg), do: avg |> Decimal.round() |> Decimal.to_integer()
+  defp to_ms(avg) when is_float(avg), do: round(avg)
+  defp to_ms(avg) when is_integer(avg), do: avg
 
   @doc "The track `user_id` has played the most times, or nil if they've never played anything."
   def most_played(user_id) do

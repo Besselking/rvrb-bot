@@ -166,6 +166,79 @@ defmodule Rvrb.CommandsTest do
     end
   end
 
+  describe "rotation_table/3" do
+    @minute 60_000
+
+    setup do
+      estimate =
+        Rvrb.Rotation.estimate(
+          ["dj-a", "dj-b"],
+          %{"dj-a" => %{avg_ms: 3 * @minute, play_count: 4}},
+          remaining_ms: @minute,
+          fallback_ms: 5 * @minute
+        )
+
+      dj_map = %{
+        "dj-a" => %{display_name: "Ada", user_name: "ada"},
+        "dj-b" => %{display_name: nil, user_name: "bo"}
+      }
+
+      %{estimate: estimate, dj_map: dj_map}
+    end
+
+    test "titles the table with one lap of the queue", %{estimate: estimate, dj_map: dj_map} do
+      assert Commands.rotation_table(estimate, dj_map, "dj-b") =~
+               "<th>DJ rotation - one lap ≈ 8m 0s</th>"
+    end
+
+    test "marks the DJ currently playing", %{estimate: estimate, dj_map: dj_map} do
+      assert Commands.rotation_table(estimate, dj_map, "dj-b") =~ "<td>▶ Ada</td>"
+      assert Commands.rotation_table(estimate, dj_map, "dj-b") =~ "<td>bo</td>"
+    end
+
+    test "shows how many plays each average is drawn from", %{
+      estimate: estimate,
+      dj_map: dj_map
+    } do
+      html = Commands.rotation_table(estimate, dj_map, "dj-b")
+
+      assert html =~ "<td>3m 0s (over 4 plays)</td>"
+      assert html =~ "<td>5m 0s (guess)</td>"
+    end
+
+    test "counts down to each DJ's next play", %{estimate: estimate, dj_map: dj_map} do
+      html = Commands.rotation_table(estimate, dj_map, "dj-b")
+
+      # Ada is playing, so she's up again after the rest of the queue
+      assert html =~ "<td>≈ 6m 0s</td>"
+      # bo is next, as soon as the current track's last minute is up
+      assert html =~ "<td>≈ 1m 0s</td>"
+    end
+
+    test "tells a queued DJ when they're up", %{estimate: estimate, dj_map: dj_map} do
+      assert Commands.rotation_table(estimate, dj_map, "dj-b") =~ "You're up in ≈ 1m 0s."
+    end
+
+    test "tells the DJ playing right now when they're back up", %{
+      estimate: estimate,
+      dj_map: dj_map
+    } do
+      assert Commands.rotation_table(estimate, dj_map, "dj-a") =~
+               "You're playing right now - you're back up in ≈ 6m 0s."
+    end
+
+    test "tells a listener they're not in the queue", %{estimate: estimate, dj_map: dj_map} do
+      html = Commands.rotation_table(estimate, dj_map, "listener")
+
+      assert html =~ "You're not in the DJ queue"
+      refute html =~ "You're up in"
+    end
+
+    test "falls back to a placeholder for a DJ we have no user record for", %{estimate: estimate} do
+      assert Commands.rotation_table(estimate, %{}, "listener") =~ "<td>someone</td>"
+    end
+  end
+
   describe "commands/0" do
     test "includes a help command" do
       assert Enum.any?(Commands.commands(), &(&1.name == "help"))
