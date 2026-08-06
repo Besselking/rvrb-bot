@@ -1,5 +1,7 @@
 # Rvrb
 
+[![CI](https://github.com/Besselking/rvrb-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Besselking/rvrb-bot/actions/workflows/ci.yml)
+
 **TODO: Add description**
 
 ## Nix
