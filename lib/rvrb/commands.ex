@@ -86,15 +86,15 @@ defmodule Rvrb.Commands do
       handler: &__MODULE__.stats/3
     },
     %{
-      name: "bot",
-      usage: "\\bot [field] [value]",
+      name: "editbot",
+      usage: "\\editbot [field] [value]",
       description:
-        "(admins only) Update the bot's own profile - run \\bot with no arguments to list the fields.",
-      handler: &__MODULE__.bot/3
+        "(admins only) Update the bot's own profile - run \\editbot with no arguments to list the fields.",
+      handler: &__MODULE__.editbot/3
     }
   ]
 
-  # Chat-friendly field name => RVRB `editUser` param, in the order \bot
+  # Chat-friendly field name => RVRB `editUser` param, in the order \editbot
   # lists them.
   @bot_fields [
     {"displayname", :displayName},
@@ -492,9 +492,9 @@ defmodule Rvrb.Commands do
   defp non_empty(""), do: nil
   defp non_empty(str), do: str
 
-  def bot(args, %{"userId" => user_id}, state) do
+  def editbot(args, %{"userId" => user_id}, state) do
     if admin?(user_id) do
-      case parse_bot_edit(args) do
+      case parse_editbot(args) do
         {:ok, field, value} ->
           WebSocket.edit_user(%{field => value})
           WebSocket.chat("Set the bot's #{field} to #{value}")
@@ -510,13 +510,13 @@ defmodule Rvrb.Commands do
   end
 
   @doc """
-  Parses `\\bot` arguments into `{:ok, editUser_param, value}`, or
+  Parses `\\editbot` arguments into `{:ok, editUser_param, value}`, or
   `{:error, message}` with something to say in chat when they don't name a
   known field and a value. Field names are matched case-insensitively; the
   value is everything after the field name, so a display name or bio can
   contain spaces.
   """
-  def parse_bot_edit(args) do
+  def parse_editbot(args) do
     case args |> String.trim() |> String.split(" ", parts: 2) do
       [field, value] -> bot_edit(field, String.trim(value))
       [field] -> bot_edit(field, "")
@@ -526,10 +526,10 @@ defmodule Rvrb.Commands do
   defp bot_edit(field, "") do
     case bot_field(field) do
       {:ok, _param} ->
-        {:error, "\\bot #{String.downcase(field)} needs a value to set it to."}
+        {:error, "\\editbot #{String.downcase(field)} needs a value to set it to."}
 
       :error ->
-        {:error, "Usage: \\bot [field] [value], where field is one of #{bot_field_list()}"}
+        {:error, "Usage: \\editbot [field] [value], where field is one of #{bot_field_list()}"}
     end
   end
 

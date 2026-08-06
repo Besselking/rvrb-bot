@@ -65,43 +65,43 @@ defmodule Rvrb.CommandsTest do
     end
   end
 
-  describe "parse_bot_edit/1" do
+  describe "parse_editbot/1" do
     test "maps a chat field name onto its editUser param" do
-      assert Commands.parse_bot_edit("displayname BotName") == {:ok, :displayName, "BotName"}
-      assert Commands.parse_bot_edit("bio This is a bot") == {:ok, :bio, "This is a bot"}
+      assert Commands.parse_editbot("displayname BotName") == {:ok, :displayName, "BotName"}
+      assert Commands.parse_editbot("bio This is a bot") == {:ok, :bio, "This is a bot"}
 
-      assert Commands.parse_bot_edit("djimage /static/dj.webp") ==
+      assert Commands.parse_editbot("djimage /static/dj.webp") ==
                {:ok, :djImage, "/static/dj.webp"}
 
-      assert Commands.parse_bot_edit("thumbsup /static/up.webp") ==
+      assert Commands.parse_editbot("thumbsup /static/up.webp") ==
                {:ok, :thumbsUpImage, "/static/up.webp"}
 
-      assert Commands.parse_bot_edit("thumbsdown /static/down.png") ==
+      assert Commands.parse_editbot("thumbsdown /static/down.png") ==
                {:ok, :thumbsDownImage, "/static/down.png"}
     end
 
     test "is case-insensitive on the field name" do
-      assert Commands.parse_bot_edit("DisplayName BotName") == {:ok, :displayName, "BotName"}
+      assert Commands.parse_editbot("DisplayName BotName") == {:ok, :displayName, "BotName"}
     end
 
     test "keeps spaces in the value, since names and bios have them" do
-      assert Commands.parse_bot_edit("displayname  Bot  The  Bot ") ==
+      assert Commands.parse_editbot("displayname  Bot  The  Bot ") ==
                {:ok, :displayName, "Bot  The  Bot"}
     end
 
     test "lists the known fields when given no arguments" do
-      assert {:error, message} = Commands.parse_bot_edit("")
+      assert {:error, message} = Commands.parse_editbot("")
       assert message =~ "displayname"
       assert message =~ "thumbsdown"
     end
 
     test "rejects a field the bot doesn't have" do
-      assert {:error, message} = Commands.parse_bot_edit("nickname BotName")
+      assert {:error, message} = Commands.parse_editbot("nickname BotName")
       assert message =~ "no nickname"
     end
 
     test "rejects a known field with no value" do
-      assert {:error, message} = Commands.parse_bot_edit("bio")
+      assert {:error, message} = Commands.parse_editbot("bio")
       assert message =~ "needs a value"
     end
   end
