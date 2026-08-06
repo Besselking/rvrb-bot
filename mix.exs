@@ -7,7 +7,16 @@ defmodule Rvrb.MixProject do
       version: "0.1.0",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
+      aliases: aliases(),
       deps: deps()
+    ]
+  end
+
+  # `mix test` needs the test database to exist and be migrated - do it here
+  # so a local run and a CI run go through exactly the same steps.
+  defp aliases do
+    [
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
     ]
   end
 
