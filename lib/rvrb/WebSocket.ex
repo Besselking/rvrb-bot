@@ -3,23 +3,25 @@ defmodule Rvrb.WebSocket do
   alias Rvrb.PlayTracker
   use Fresh
 
-  """
-    edit_user_image = %{
-      jsonrpc: "2.0",
-      method: "editUser",
-      params: %{
-        displayName: "<new name>",
-        image: "<image url>",
-        bio: "This is a bot"
-      },
-      id: 1234
-    }
-  """
-
   def send_message(message) do
     data = JSON.encode!(message)
     IO.puts("OUT: #{data}")
     Fresh.send(Connection, {:text, data})
+  end
+
+  @doc """
+  Updates the bot's own profile. `params` holds the subset of RVRB's
+  `editUser` keys to change - `displayName`, `image`, `djImage`,
+  `thumbsUpImage`, `thumbsDownImage`, `bio` - and anything left out keeps
+  its current value.
+  """
+  def edit_user(params) do
+    send_message(%{
+      jsonrpc: "2.0",
+      method: "editUser",
+      params: params,
+      id: Enum.random(1..1000)
+    })
   end
 
   def dope() do

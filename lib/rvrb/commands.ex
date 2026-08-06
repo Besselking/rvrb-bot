@@ -84,7 +84,25 @@ defmodule Rvrb.Commands do
       description:
         "Show DJ stats (tracks played, dopes/favorites received, favorite DJs and tracks) for yourself or a tagged user.",
       handler: &__MODULE__.stats/3
+    },
+    %{
+      name: "bot",
+      usage: "\\bot [field] [value]",
+      description:
+        "(admins only) Update the bot's own profile - run \\bot with no arguments to list the fields.",
+      handler: &__MODULE__.bot/3
     }
+  ]
+
+  # Chat-friendly field name => RVRB `editUser` param, in the order \bot
+  # lists them.
+  @bot_fields [
+    {"displayname", :displayName},
+    {"bio", :bio},
+    {"image", :image},
+    {"djimage", :djImage},
+    {"thumbsup", :thumbsUpImage},
+    {"thumbsdown", :thumbsDownImage}
   ]
 
   @doc "Returns the registered commands, in definition order."
@@ -473,6 +491,67 @@ defmodule Rvrb.Commands do
 
   defp non_empty(""), do: nil
   defp non_empty(str), do: str
+
+  def bot(args, %{"userId" => user_id}, state) do
+    if admin?(user_id) do
+      case parse_bot_edit(args) do
+        {:ok, field, value} ->
+          WebSocket.edit_user(%{field => value})
+          WebSocket.chat("Set the bot's #{field} to #{value}")
+
+        {:error, message} ->
+          WebSocket.chat(message)
+      end
+    else
+      WebSocket.chat("Sorry, you're not allowed to change the bot's profile")
+    end
+
+    {:ok, state}
+  end
+
+  @doc """
+  Parses `\\bot` arguments into `{:ok, editUser_param, value}`, or
+  `{:error, message}` with something to say in chat when they don't name a
+  known field and a value. Field names are matched case-insensitively; the
+  value is everything after the field name, so a display name or bio can
+  contain spaces.
+  """
+  def parse_bot_edit(args) do
+    case args |> String.trim() |> String.split(" ", parts: 2) do
+      [field, value] -> bot_edit(field, String.trim(value))
+      [field] -> bot_edit(field, "")
+    end
+  end
+
+  defp bot_edit(field, "") do
+    case bot_field(field) do
+      {:ok, _param} ->
+        {:error, "\\bot #{String.downcase(field)} needs a value to set it to."}
+
+      :error ->
+        {:error, "Usage: \\bot [field] [value], where field is one of #{bot_field_list()}"}
+    end
+  end
+
+  defp bot_edit(field, value) do
+    case bot_field(field) do
+      {:ok, param} -> {:ok, param, value}
+      :error -> {:error, "The bot has no #{field} - try one of #{bot_field_list()}"}
+    end
+  end
+
+  defp bot_field(field) do
+    name = String.downcase(field)
+
+    case List.keyfind(@bot_fields, name, 0) do
+      {^name, param} -> {:ok, param}
+      nil -> :error
+    end
+  end
+
+  defp bot_field_list do
+    @bot_fields |> Enum.map(fn {name, _param} -> name end) |> Enum.join(", ")
+  end
 
   defp render_stats(nil, not_found_message, state) do
     WebSocket.chat(not_found_message)

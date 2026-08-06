@@ -22,7 +22,7 @@ defmodule Rvrb.SpotifyUrl do
   def parse("<a" <> _ = html_link) do
     case Regex.named_captures(~r/<a href="(?<href>[^"]+)"/, html_link) do
       %{"href" => href} -> parse(href)
-      other -> {:error, "invalid Url: #{IO.inspect(html_link)}"}
+      nil -> {:error, "invalid Url: #{html_link}"}
     end
   end
 
