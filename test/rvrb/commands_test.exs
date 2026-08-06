@@ -96,8 +96,8 @@ defmodule Rvrb.CommandsTest do
       html = Commands.stats_table(user, stats)
 
       assert html =~ "<tr><th>Profile</th>"
-      assert html =~ "<tr><th>Behind the decks</th>"
-      assert html =~ "<tr><th>In the crowd</th>"
+      assert html =~ "<tr><th><span class=\"alert\">Behind the decks</span></th>"
+      assert html =~ "<tr><th><span class=\"alert\">In the crowd</span></th>"
     end
 
     test "titles the table with the user's display name", %{user: user, empty_stats: stats} do
