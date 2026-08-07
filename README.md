@@ -64,9 +64,9 @@ RVRB_DB_PASSWORD=...
 and the password can be omitted, relying on peer auth.
 
 Optionally set `RVRB_SPOTIFY_CLIENT_ID` / `RVRB_SPOTIFY_SECRET_KEY` for the
-Spotify-backed commands. Non-secret overrides (`RVRB_DB_HOSTNAME`,
-`RVRB_DB_NAME`, `RVRB_DB_PORT`, `RVRB_SPOTIFY_CALLBACK_URL`,
-`RVRB_SPOTIFY_SCOPES`, `RVRB_LOG_LEVEL`) go in
+Spotify-backed commands. Non-secret overrides (`RVRB_BOT_ADMINS`,
+`RVRB_DB_HOSTNAME`, `RVRB_DB_NAME`, `RVRB_DB_PORT`,
+`RVRB_SPOTIFY_CALLBACK_URL`, `RVRB_SPOTIFY_SCOPES`, `RVRB_LOG_LEVEL`) go in
 `services.rvrb-bot.settings` instead. See
 `nix/module.nix` for the full option list, including
 `services.rvrb-bot.database.createLocally` to provision a local PostgreSQL
