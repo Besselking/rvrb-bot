@@ -27,7 +27,7 @@
           pname = "rvrb-deps";
           inherit version elixir;
           src = ./.;
-          hash = "sha256-2Tm/bpbSbX59VUDPfLMXOjH/qgbWD4gsenWDHkomGOs=";
+          hash = "sha256-2hH62w1NeqRM3dBQvi+sNwvh/+mWJIE23hr9oAJOSkU=";
         };
       in
       {
