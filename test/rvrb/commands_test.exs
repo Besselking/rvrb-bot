@@ -254,6 +254,11 @@ defmodule Rvrb.CommandsTest do
                "<th>DJ rotation - one lap ≈ 8m 0s</th>"
     end
 
+    test "labels both data columns", %{estimate: estimate, dj_map: dj_map} do
+      assert Commands.rotation_table(estimate, dj_map, "dj-b") =~
+               "<tr><th>DJ</th><th>Avg track length</th><th>Next play in</th></tr>"
+    end
+
     test "marks the DJ currently playing", %{estimate: estimate, dj_map: dj_map} do
       assert Commands.rotation_table(estimate, dj_map, "dj-b") =~ "<td>▶ Ada</td>"
       assert Commands.rotation_table(estimate, dj_map, "dj-b") =~ "<td>bo</td>"
