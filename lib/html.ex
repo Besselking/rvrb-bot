@@ -1,7 +1,43 @@
 defmodule Html do
+  @escapes %{
+    "&" => "&amp;",
+    "<" => "&lt;",
+    ">" => "&gt;",
+    "\"" => "&quot;",
+    "'" => "&#39;"
+  }
+
+  @doc """
+  Escapes `value` for interpolation into the markup the bot sends to chat.
+
+  RVRB renders bot messages as HTML, so anything the bot doesn't control -
+  display names, track and artist names, the arguments someone typed after
+  a command - has to come through here first. A stray `<` in a display
+  name otherwise swallows the rest of a table row.
+
+  `{:safe, html}` is the opt-out: it passes through untouched, for the
+  handful of places that mean the markup they're building (album art
+  `<img>`s, the `<span class="alert">` section headers, artist links).
+  Wrap only markup you built yourself, and escape the values you
+  interpolated into it.
+
+  Non-binary values (numbers, atoms) are stringified first, and `nil`
+  renders as an empty string.
+  """
+  def escape({:safe, html}), do: html
+  def escape(nil), do: ""
+
+  def escape(value) when is_binary(value),
+    do: String.replace(value, ~w(& < > " '), &Map.fetch!(@escapes, &1))
+
+  def escape(value), do: value |> to_string() |> escape()
+
   @doc """
   Renders a `chat-table` from `values` (a list of maps/keyword lists) using
   `keys` (a list of `{key, header_name}` pairs) to pick and label columns.
+
+  Every cell, header and title goes through `escape/1`, so callers pass
+  plain text and wrap anything that's deliberately markup in `{:safe, html}`.
 
   Pass `title: "..."` in `opts` for a single header cell (e.g. a
   "so-and-so's stats" title row) instead of one `<th>` per key. RVRB's
@@ -16,7 +52,9 @@ defmodule Html do
     header =
       case Keyword.get(opts, :title) do
         nil ->
-          header_names = Enum.map(keys, fn {_, header_name} -> ["<th>", header_name, "</th>"] end)
+          header_names =
+            Enum.map(keys, fn {_, header_name} -> ["<th>", escape(header_name), "</th>"] end)
+
           ["<thead><tr>", header_names, "</tr></thead>"]
 
         title ->
@@ -32,7 +70,7 @@ defmodule Html do
           [
             "<tr>",
             Enum.map(keys, fn {key, _} ->
-              ["<td>", value[key], "</td>"]
+              ["<td>", escape(value[key]), "</td>"]
             end),
             "</tr>"
           ]
@@ -51,6 +89,6 @@ defmodule Html do
 
   defp header_row(text, keys) do
     padding = List.duplicate("<th></th>", max(length(keys) - 1, 0))
-    ["<tr><th>", text, "</th>", padding, "</tr>"]
+    ["<tr><th>", escape(text), "</th>", padding, "</tr>"]
   end
 end

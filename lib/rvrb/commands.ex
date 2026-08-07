@@ -147,7 +147,7 @@ defmodule Rvrb.Commands do
   defp dispatch(name, args, params, state) do
     case Enum.find(@commands, &(&1.name == name)) do
       nil ->
-        chat("Unknown command \\#{name}. Try \\help for a list of commands.")
+        chat("Unknown command \\#{Html.escape(name)}. Try \\help for a list of commands.")
         {:ok, state}
 
       %{handler: handler} ->
@@ -175,7 +175,7 @@ defmodule Rvrb.Commands do
 
   defp log_command_failure(name, formatted) do
     IO.puts("command \\#{name} failed:\n#{formatted}")
-    chat("Something went wrong running \\#{name}, sorry. It's been logged.")
+    chat("Something went wrong running \\#{Html.escape(name)}, sorry. It's been logged.")
   end
 
   ## -- socket ----------------------------------------------------------
@@ -201,7 +201,7 @@ defmodule Rvrb.Commands do
   def help(name, _params, state) do
     case Enum.find(@commands, &(&1.name == String.downcase(name))) do
       nil ->
-        chat("Unknown command \\#{name}. Try \\help for a list of commands.")
+        chat("Unknown command \\#{Html.escape(name)}. Try \\help for a list of commands.")
 
       %{usage: usage, description: description} ->
         chat("<strong>#{usage}</strong> - #{description}")
@@ -221,7 +221,7 @@ defmodule Rvrb.Commands do
 
   def qg(keyword, _params, state) do
     case GenreServer.get_genre(keyword) do
-      nil -> chat("No genres matching \"#{keyword}\" - try a broader keyword.")
+      nil -> chat("No genres matching \"#{Html.escape(keyword)}\" - try a broader keyword.")
       genre -> chat(genre)
     end
 
@@ -371,7 +371,7 @@ defmodule Rvrb.Commands do
 
   defp spin_html(url) do
     "<span class=\"image-container\">
-      <img class=\"ui image circular spin\" src=\"#{url}\"/>
+      <img class=\"ui image circular spin\" src=\"#{Html.escape(url)}\"/>
     </span>"
   end
 
@@ -394,7 +394,7 @@ defmodule Rvrb.Commands do
               SpotifyServer.album_tracks(id)
 
             :error ->
-              chat("error queuing: #{id}")
+              chat("error queuing: #{Html.escape(id)}")
               []
           end
 
@@ -440,14 +440,17 @@ defmodule Rvrb.Commands do
       genres: if(info.genres == [], do: "—", else: Enum.join(info.genres, ", ")),
       popularity: to_string(info.popularity),
       followers: format_followers(info.followers),
-      ai_verdict: verdict_label
+      # The verdict label is built from release counts and carries its own
+      # `<br>`, so it's markup the bot wrote rather than anything a user or
+      # Spotify can influence.
+      ai_verdict: {:safe, verdict_label}
     }
   end
 
   defp artist_link(%{spotify_url: nil, name: name}), do: name
 
   defp artist_link(%{spotify_url: url, name: name}),
-    do: "<a href=\"#{url}\" target=\"_blank\">#{name}</a>"
+    do: {:safe, "<a href=\"#{Html.escape(url)}\" target=\"_blank\">#{Html.escape(name)}</a>"}
 
   defp format_followers(nil), do: "?"
 
@@ -523,7 +526,7 @@ defmodule Rvrb.Commands do
       username ->
         render_stats(
           User.get_by_user_name(username),
-          "No stats for #{username} yet - haven't seen them DJ.",
+          "No stats for #{Html.escape(username)} yet - haven't seen them DJ.",
           state
         )
     end
@@ -554,7 +557,7 @@ defmodule Rvrb.Commands do
       case parse_editbot(args) do
         {:ok, field, value} ->
           edit_user(%{field => value})
-          chat("Set the bot's #{field} to #{value}")
+          chat("Set the bot's #{field} to #{Html.escape(value)}")
 
         {:error, message} ->
           chat(message)
@@ -593,7 +596,7 @@ defmodule Rvrb.Commands do
   defp bot_edit(field, value) do
     case bot_field(field) do
       {:ok, param} -> {:ok, param, value}
-      :error -> {:error, "The bot has no #{field} - try one of #{bot_field_list()}"}
+      :error -> {:error, "The bot has no #{Html.escape(field)} - try one of #{bot_field_list()}"}
     end
   end
 
@@ -639,7 +642,7 @@ defmodule Rvrb.Commands do
       %{label: "Member since", value: member_since},
       %{label: "Last DJed", value: last_djed},
       %{label: "Used first-time skip", value: has_skipped},
-      %{section: "<span class=\"alert\">Behind the decks</span>"},
+      %{section: {:safe, "<span class=\"alert\">Behind the decks</span>"}},
       %{label: "Tracks played", value: to_string(play_stats.play_count)},
       %{label: "Dopes received", value: to_string(play_stats.dopes_received)},
       %{label: "Favorites received", value: to_string(play_stats.stars_received)},
@@ -650,7 +653,7 @@ defmodule Rvrb.Commands do
         value: most_played_artist_summary(play_stats.most_played_artist)
       },
       %{label: "Highest scoring artist", value: artist_score_summary(play_stats.best_artist)},
-      %{section: "<span class=\"alert\">In the crowd</span>"},
+      %{section: {:safe, "<span class=\"alert\">In the crowd</span>"}},
       %{label: "Favorite DJ", value: favorite_dj_summary(play_stats.favorite_dj)},
       %{label: "Favorite track", value: track_score_summary(play_stats.favorite_track)},
       %{label: "Favorite artist", value: artist_score_summary(play_stats.favorite_artist)}

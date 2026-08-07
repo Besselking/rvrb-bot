@@ -67,7 +67,11 @@ defmodule Rvrb.WebSocket do
           (track.album["images"]
            |> Enum.min_by(& &1["width"]))["url"]
 
-        %{image: "<img src=\"#{smallest_image_url}\"/>", name: track.name, artist: artists}
+        %{
+          image: {:safe, "<img src=\"#{Html.escape(smallest_image_url)}\"/>"},
+          name: track.name,
+          artist: artists
+        }
       end
 
     table = Html.table(rows, [{:image, ""}, {:name, "Name"}, {:artist, "Artist"}])
@@ -369,7 +373,7 @@ defmodule Rvrb.WebSocket do
 
     for dj <- fresh_djs do
       chat(
-        "Hi #{Rvrb.User.get_name(users, dj)}, looks like this is your first time DJing in this room.
+        "Hi #{Html.escape(Rvrb.User.get_name(users, dj))}, looks like this is your first time DJing in this room.
         <br/>First-timers get a skip to the front, when you're ready use <strong>\\skip</strong> to skip to the front of the queue!"
       )
     end
