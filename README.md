@@ -66,7 +66,17 @@ and the password can be omitted, relying on peer auth.
 Optionally set `RVRB_SPOTIFY_CLIENT_ID` / `RVRB_SPOTIFY_SECRET_KEY` for the
 Spotify-backed commands. Non-secret overrides (`RVRB_DB_HOSTNAME`,
 `RVRB_DB_NAME`, `RVRB_DB_PORT`, `RVRB_SPOTIFY_CALLBACK_URL`,
-`RVRB_SPOTIFY_SCOPES`) go in `services.rvrb-bot.settings` instead. See
+`RVRB_SPOTIFY_SCOPES`, `RVRB_LOG_LEVEL`) go in
+`services.rvrb-bot.settings` instead. See
 `nix/module.nix` for the full option list, including
 `services.rvrb-bot.database.createLocally` to provision a local PostgreSQL
 role and database.
+
+## Logging
+
+Everything goes through `Logger`. `dev` runs at `:debug` - every frame in
+and out, plus the per-voter dump on each meter update. A release runs at
+`:info`, which is the room-level story: connects, ready/join, track
+changes, DJs coming and going, commands, and anything that went wrong.
+Turn a running deployment up or down with `RVRB_LOG_LEVEL` (see above);
+under systemd the output lands in the journal (`journalctl -u rvrb-bot`).

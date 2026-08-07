@@ -19,6 +19,8 @@ defmodule Rvrb.Commands do
   alias Rvrb.SpotifyUrl
   alias Rvrb.User
 
+  require Logger
+
   @prefix "\\"
 
   @commands [
@@ -151,7 +153,7 @@ defmodule Rvrb.Commands do
         {:ok, state}
 
       %{handler: handler} ->
-        IO.puts("command \\#{name} #{args}")
+        Logger.info("command \\#{name} #{args}")
         run(name, handler, args, params, state)
     end
   end
@@ -174,7 +176,7 @@ defmodule Rvrb.Commands do
   end
 
   defp log_command_failure(name, formatted) do
-    IO.puts("command \\#{name} failed:\n#{formatted}")
+    Logger.error("command \\#{name} failed:\n#{formatted}")
     chat("Something went wrong running \\#{Html.escape(name)}, sorry. It's been logged.")
   end
 

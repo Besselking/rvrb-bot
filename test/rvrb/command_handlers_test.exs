@@ -11,7 +11,7 @@ defmodule Rvrb.CommandHandlersTest do
 
   use Rvrb.DataCase, async: false
 
-  import ExUnit.CaptureIO
+  import ExUnit.CaptureLog
 
   alias Rvrb.Commands
 
@@ -128,10 +128,10 @@ defmodule Rvrb.CommandHandlersTest do
     end
   end
 
-  # Handlers log to stdout as they go; swallow that so the suite stays
-  # readable, and hand back what the handler returned.
+  # Handlers log as they go; swallow that so the suite stays readable, and
+  # hand back what the handler returned.
   defp handle(payload, params, state) do
-    capture_io(fn -> send(self(), {:handled, Commands.handle(payload, params, state)}) end)
+    capture_log(fn -> send(self(), {:handled, Commands.handle(payload, params, state)}) end)
 
     assert_received {:handled, result}
     result

@@ -3,11 +3,13 @@ defmodule Rvrb.WebSocket do
   alias Rvrb.PlayWriter
   use Fresh
 
+  require Logger
+
   @behaviour Rvrb.Socket
 
   def send_message(message) do
     data = JSON.encode!(message)
-    IO.puts("OUT: #{data}")
+    Logger.debug("OUT: #{data}")
     Fresh.send(Connection, {:text, data})
   end
 
@@ -87,7 +89,6 @@ defmodule Rvrb.WebSocket do
         djs: [],
         doped: false,
         starred: false,
-        debug_djs: true,
         current_track: %{},
         # Monotonic ms at which the current track started, so `\rotation`
         # can subtract the elapsed part of it from its estimate. Monotonic
@@ -101,23 +102,24 @@ defmodule Rvrb.WebSocket do
   end
 
   def handle_connect(_status, headers, state) do
-    IO.puts("Upgrade request headers: #{inspect(headers)}")
+    Logger.info("Connected")
+    Logger.debug("Upgrade request headers: #{inspect(headers)}")
     {:ok, state}
   end
 
   def handle_disconnect(1002, _reason, _state) do
-    IO.puts("Reconnecting")
+    Logger.warning("Reconnecting")
     :reconnect
   end
 
   def handle_disconnect(code, reason, _state) do
-    IO.puts("closing, #{code} #{reason}")
+    Logger.warning("Closing, #{code} #{reason}")
     :close
   end
 
   def handle_error({error, reason}, state)
       when error in [:encoding_failed, :casting_failed] do
-    IO.puts("ERROR: #{error} #{reason}")
+    Logger.error("#{error} #{reason}")
     {:ignore, state}
   end
 
@@ -126,14 +128,14 @@ defmodule Rvrb.WebSocket do
     # tuples (`{:establishing_failed, %Mint.WebSocket.UpgradeFailureError{}}`
     # and friends), and String.Chars raising here would turn a reconnectable
     # error into a crash.
-    IO.puts("ERROR: #{inspect(error)}")
+    Logger.error(inspect(error))
     :reconnect
   end
 
   def handle_pushChannelMessage(%{"type" => "alert"} = params, state) do
     %{"payload" => payload, "syncTime" => synctime} = params
 
-    IO.puts("alert! #{inspect(payload)} #{inspect(synctime)}")
+    Logger.info("alert! #{inspect(payload)} #{inspect(synctime)}")
 
     state =
       if String.ends_with?(payload, "chat messages were deleted by bot_1728728144538") do
@@ -149,7 +151,7 @@ defmodule Rvrb.WebSocket do
       when is_binary(payload) do
     case Commands.handle(payload, params, state) do
       :not_a_command ->
-        IO.puts("pushChannelMessage! #{inspect(params)}")
+        Logger.debug("pushChannelMessage! #{inspect(params)}")
         {:ok, state}
 
       result ->
@@ -158,7 +160,7 @@ defmodule Rvrb.WebSocket do
   end
 
   def handle_pushChannelMessage(params, state) do
-    IO.puts("pushChannelMessage! #{inspect(params)}")
+    Logger.debug("pushChannelMessage! #{inspect(params)}")
     {:ok, state}
   end
 
@@ -167,7 +169,7 @@ defmodule Rvrb.WebSocket do
   end
 
   def handle_message(%{"method" => "ready", "params" => params}, state) do
-    IO.puts("ready! #{inspect(params)}")
+    Logger.info("ready! #{inspect(params)}")
 
     state = Map.put(state, :channelId, params["channelId"])
 
@@ -180,12 +182,12 @@ defmodule Rvrb.WebSocket do
         id: Enum.random(1..100)
       })
 
-    IO.puts("OUT: #{join_message}")
+    Logger.debug("OUT: #{join_message}")
     {:reply, {:text, join_message}, state}
   end
 
   def handle_message(%{"method" => "keepAwake", "params" => params}, state) do
-    # IO.puts("keepAwake! #{inspect(params)}")
+    Logger.debug("keepAwake! #{inspect(params)}")
 
     state = Map.put(state, :latency, params["latency"])
 
@@ -197,12 +199,12 @@ defmodule Rvrb.WebSocket do
         }
       })
 
-    # IO.puts("OUT: #{keepAwake_message}")
+    Logger.debug("OUT: #{keepAwake_message}")
     {:reply, {:text, keepAwake_message}, state}
   end
 
   def handle_message(%{"method" => "updateChannelUsers", "params" => params}, state) do
-    IO.puts("updateChannelUsers! #{params["type"]}")
+    Logger.debug("updateChannelUsers! #{params["type"]}")
 
     Rvrb.User.update_users(params["users"])
 
@@ -214,7 +216,7 @@ defmodule Rvrb.WebSocket do
   # step off the decks rather than sitting there dead - an admin can
   # \queue something and \join again.
   def handle_message(%{"method" => "nextChannelTrack"} = params, %{queue: []} = state) do
-    IO.puts("nextChannelTrack! (queue empty)")
+    Logger.warning("nextChannelTrack! (queue empty)")
 
     error_response =
       JSON.encode!(%{
@@ -225,12 +227,12 @@ defmodule Rvrb.WebSocket do
     chat("My queue is empty, so I'm stepping off the decks - queue me something with \\queue.")
     send_message(%{method: "leaveDjs"})
 
-    IO.puts("OUT: #{error_response}")
+    Logger.debug("OUT: #{error_response}")
     {:reply, {:text, error_response}, state}
   end
 
   def handle_message(%{"method" => "nextChannelTrack"} = params, state) do
-    IO.puts("nextChannelTrack!")
+    Logger.info("nextChannelTrack!")
 
     [next_track | queue] = state.queue
 
@@ -242,12 +244,12 @@ defmodule Rvrb.WebSocket do
         id: params["id"]
       })
 
-    IO.puts("OUT: #{track_response}")
+    Logger.debug("OUT: #{track_response}")
     {:reply, {:text, track_response}, %{state | :queue => queue}}
   end
 
   def handle_message(%{"method" => "updateChannelMeter", "params" => params}, state) do
-    IO.puts("updateChannelMeter!")
+    Logger.debug("updateChannelMeter!")
     voting = params["voting"]
     dopes = for {userid, vote} <- voting, vote["dope"] > 0, do: userid
     stars = for {userid, vote} <- voting, vote["star"] > 0, do: userid
@@ -279,25 +281,29 @@ defmodule Rvrb.WebSocket do
         state.starred
       end
 
-    vote_user_ids = Map.keys(voting)
-    voted_users = Rvrb.User.get_users(vote_user_ids)
+    # A meter arrives for every vote anyone casts, so the per-voter dump goes
+    # behind a lazy `Logger.debug/1`: with debug off, neither the user lookup
+    # nor the lines themselves happen at all.
+    Logger.debug(fn ->
+      voted_users = Rvrb.User.get_users(Map.keys(voting))
 
-    for {userid, votes} <- voting do
-      name = Rvrb.User.get_name(voted_users, userid)
+      Enum.map_join(voting, "\n", fn {userid, votes} ->
+        name = Rvrb.User.get_name(voted_users, userid)
 
-      vote =
-        for {vote, count} <- votes, count > 0 do
-          case vote do
-            "dope" -> "👍"
-            "star" -> "🔖"
-            "boofstar" -> "👎🔖"
-            "nope" -> "👎"
-            _ -> ""
+        vote =
+          for {vote, count} <- votes, count > 0 do
+            case vote do
+              "dope" -> "👍"
+              "star" -> "🔖"
+              "boofstar" -> "👎🔖"
+              "nope" -> "👎"
+              _ -> ""
+            end
           end
-        end
 
-      IO.puts("#{name}: \t#{vote}")
-    end
+        "#{name}: \t#{vote}"
+      end)
+    end)
 
     {:ok, %{state | doped: doped, starred: starred}}
   end
@@ -307,7 +313,11 @@ defmodule Rvrb.WebSocket do
         %{autodope: true} = state
       ) do
     track = params["track"]
-    IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
+
+    Logger.info(
+      "playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}"
+    )
+
     dope()
 
     PlayWriter.record(state.djs, track)
@@ -325,8 +335,12 @@ defmodule Rvrb.WebSocket do
         state
       ) do
     track = params["track"]
-    IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
-    # IO.puts("playChannelTrack! #{inspect(track)}")
+
+    Logger.info(
+      "playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}"
+    )
+
+    Logger.debug("playChannelTrack! #{inspect(track)}")
 
     PlayWriter.record(state.djs, track)
 
@@ -340,13 +354,13 @@ defmodule Rvrb.WebSocket do
      }}
   end
 
-  def handle_message(%{"method" => "updateChannelUserStatus"}, state) do
-    # IO.puts("updateChannelUserStatus! #{inspect(params)}")
+  def handle_message(%{"method" => "updateChannelUserStatus"} = message, state) do
+    Logger.debug("updateChannelUserStatus! #{inspect(message)}")
     {:ok, state}
   end
 
   def handle_message(%{"method" => "updateChannelDjs", "params" => params}, state) do
-    IO.puts("updateChannelDjs! #{params["type"]}")
+    Logger.info("updateChannelDjs! #{params["type"]}")
 
     current_djs = state.djs
     djs = params["djs"]
@@ -375,14 +389,12 @@ defmodule Rvrb.WebSocket do
       )
     end
 
-    if state.debug_djs do
-      for dj <- djs_left do
-        IO.puts("\t #{Rvrb.User.get_name(users, dj)} left")
-      end
+    for dj <- djs_left do
+      Logger.info("\t #{Rvrb.User.get_name(users, dj)} left")
+    end
 
-      for dj <- djs_joined do
-        IO.puts("\t #{Rvrb.User.get_name(users, dj)} joined")
-      end
+    for dj <- djs_joined do
+      Logger.info("\t #{Rvrb.User.get_name(users, dj)} joined")
     end
 
     state = %{state | djs: djs}
@@ -390,25 +402,25 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
-  def handle_message(%{"method" => "updateChannelHistory"}, state) do
-    # IO.puts("updateChannelUserStatus! #{inspect(params)}")
+  def handle_message(%{"method" => "updateChannelHistory"} = message, state) do
+    Logger.debug("updateChannelHistory! #{inspect(message)}")
     {:ok, state}
   end
 
   def handle_message(unknown_message, state) do
-    IO.puts("Received state: #{inspect(unknown_message)}")
+    Logger.debug("Received state: #{inspect(unknown_message)}")
     {:ok, state}
   end
 
   def handle_in({:text, data}, state) do
-    # IO.puts("IN: #{data}")
+    Logger.debug("IN: #{data}")
     message = JSON.decode!(data)
 
     handle_message(message, state)
   end
 
   def handle_terminate(reason, _state) do
-    IO.puts("Process is terminating with reason: #{inspect(reason)}")
+    Logger.warning("Process is terminating with reason: #{inspect(reason)}")
     # chat("Bot is shutting down...")
     send_message(%{
       method: "leave"

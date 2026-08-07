@@ -36,7 +36,12 @@ defmodule Rvrb.GenreServerTest do
     end
 
     test "matches a keyword regardless of case" do
-      assert GenreServer.get_genre("Rock") =~ "rock"
+      # Case-insensitive on both sides, so the line that comes back is free
+      # to spell it any way it likes - `traditional irish singing - (e.g.
+      # Joe Heaney "The Rocks of Bawn")` is a legitimate answer here, and
+      # asserting on the raw string made this pass or fail on which of the
+      # matches `Enum.random/1` happened to pick.
+      assert GenreServer.get_genre("Rock") |> String.downcase() =~ "rock"
     end
   end
 

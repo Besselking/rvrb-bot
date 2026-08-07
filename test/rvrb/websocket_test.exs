@@ -7,7 +7,7 @@ defmodule Rvrb.WebSocketTest do
 
   use Rvrb.DataCase, async: false
 
-  import ExUnit.CaptureIO
+  import ExUnit.CaptureLog
 
   alias Rvrb.WebSocket
 
@@ -62,7 +62,7 @@ defmodule Rvrb.WebSocketTest do
   end
 
   defp handle(message, state) do
-    capture_io(fn -> send(self(), {:handled, WebSocket.handle_message(message, state)}) end)
+    capture_log(fn -> send(self(), {:handled, WebSocket.handle_message(message, state)}) end)
 
     assert_received {:handled, result}
     result
