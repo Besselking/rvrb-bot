@@ -40,6 +40,11 @@ defmodule Rvrb.PlayVote do
   `MapSet` of `{voter_user_id, vote_type}` tuples representing the room's
   current vote state. Inserts whatever's missing, deletes whatever's no
   longer there.
+
+  Both halves go out as a single statement each (`insert_all` /
+  `delete_all`) rather than a round-trip per vote: this runs on every
+  `updateChannelMeter`, so a room where a dozen people vote on a track
+  would otherwise pay a dozen round-trips for what Postgres can do in one.
   """
   def sync(play_id, desired) do
     existing =
@@ -50,21 +55,43 @@ defmodule Rvrb.PlayVote do
       |> Rvrb.Repo.all()
       |> MapSet.new()
 
-    for {voter_user_id, vote_type} <- MapSet.difference(desired, existing) do
-      %Rvrb.PlayVote{}
-      |> changeset(%{play_id: play_id, voter_user_id: voter_user_id, vote_type: vote_type})
-      |> Rvrb.Repo.insert(on_conflict: :nothing)
-    end
+    missing = MapSet.difference(desired, existing)
+    stale = MapSet.difference(existing, desired)
 
-    for {voter_user_id, vote_type} <- MapSet.difference(existing, desired) do
-      from(v in Rvrb.PlayVote,
-        where:
-          v.play_id == ^play_id and v.voter_user_id == ^voter_user_id and
-            v.vote_type == ^vote_type
-      )
-      |> Rvrb.Repo.delete_all()
-    end
+    # The common case by far is a meter that changed nothing we track, so
+    # neither statement is worth a round-trip unless it has rows to touch.
+    if MapSet.size(missing) > 0, do: insert_missing(play_id, missing)
+    if MapSet.size(stale) > 0, do: delete_stale(play_id, stale)
 
     :ok
+  end
+
+  defp insert_missing(play_id, missing) do
+    entries =
+      for {voter_user_id, vote_type} <- missing do
+        %{play_id: play_id, voter_user_id: voter_user_id, vote_type: vote_type}
+      end
+
+    Rvrb.Repo.insert_all(Rvrb.PlayVote, entries,
+      on_conflict: :nothing,
+      conflict_target: [:play_id, :voter_user_id, :vote_type]
+    )
+  end
+
+  defp delete_stale(play_id, stale) do
+    # One OR'd condition per withdrawn vote. `{voter, type} IN ((?, ?), ...)`
+    # would be tidier SQL, but Ecto has no row-constructor support, and the
+    # set is only ever as big as the number of votes that changed since the
+    # last meter.
+    matches =
+      Enum.reduce(stale, dynamic(false), fn {voter_user_id, vote_type}, acc ->
+        dynamic(
+          [v],
+          ^acc or (v.voter_user_id == ^voter_user_id and v.vote_type == ^vote_type)
+        )
+      end)
+
+    from(v in Rvrb.PlayVote, where: ^dynamic([v], v.play_id == ^play_id and ^matches))
+    |> Rvrb.Repo.delete_all()
   end
 end

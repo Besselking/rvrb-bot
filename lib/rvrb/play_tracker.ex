@@ -4,6 +4,10 @@ defmodule Rvrb.PlayTracker do
   events into the `plays` / `play_votes` tables. Kept separate from
   `Rvrb.WebSocket` so the event -> row mapping can be read (and the pure
   parts tested) without the Fresh connection/GenServer plumbing.
+
+  These run on `Rvrb.PlayWriter`, not on the socket process - see its
+  moduledoc. Call them directly only from somewhere that already has the
+  ordering guarantee the writer provides.
   """
 
   alias Rvrb.Play
