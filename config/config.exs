@@ -8,6 +8,12 @@ config :rvrb, Rvrb.Repo,
   database: "rvrb_repo",
   hostname: "localhost"
 
+# dev keeps the firehose the bot used to print unconditionally - every frame
+# in and out, every vote on every meter update. Anywhere else that is noise
+# nobody reads, so only the room-level events (connect/ready, track changes,
+# DJs coming and going, commands) and problems get through.
+config :logger, level: if(config_env() == :dev, do: :debug, else: :info)
+
 if config_env() == :test do
   import_config "test.exs"
 end

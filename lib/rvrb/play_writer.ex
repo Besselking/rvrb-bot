@@ -25,6 +25,8 @@ defmodule Rvrb.PlayWriter do
 
   alias Rvrb.PlayTracker
 
+  require Logger
+
   def start_link(opts \\ []) do
     {name, opts} = Keyword.pop(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
@@ -85,7 +87,7 @@ defmodule Rvrb.PlayWriter do
     fun.()
   rescue
     error ->
-      IO.puts("PlayWriter #{what} failed: #{Exception.message(error)}")
+      Logger.error("PlayWriter #{what} failed: #{Exception.message(error)}")
       nil
   end
 end

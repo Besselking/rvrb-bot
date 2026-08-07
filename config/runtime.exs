@@ -6,6 +6,13 @@ import Config
 if config_env() == :prod do
   config :rvrb, bot_token: System.fetch_env!("RVRB_BOT_TOKEN")
 
+  # `:info` (from config.exs) is the room-level story: connects, tracks, DJs,
+  # commands. Turning this up to `debug` for a while is how you get the frame
+  # dumps back out of a running deployment, without a rebuild.
+  if level = System.get_env("RVRB_LOG_LEVEL") do
+    config :logger, level: String.to_existing_atom(level)
+  end
+
   repo_config = [
     username: System.fetch_env!("RVRB_DB_USERNAME"),
     database: System.get_env("RVRB_DB_NAME", "rvrb_repo"),

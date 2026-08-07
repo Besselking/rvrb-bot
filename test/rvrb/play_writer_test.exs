@@ -1,7 +1,7 @@
 defmodule Rvrb.PlayWriterTest do
   use Rvrb.DataCase, async: true
 
-  import ExUnit.CaptureIO
+  import ExUnit.CaptureLog
 
   alias Rvrb.Play
   alias Rvrb.PlayVote
@@ -120,12 +120,8 @@ defmodule Rvrb.PlayWriterTest do
       PlayWriter.record(writer, [dj.rvrb_id], track())
       play_id = PlayWriter.current_play_id(writer)
 
-      output =
-        capture_io(fn ->
-          # The writer prints from its own process, which kept the real
-          # group leader when it started - point it at the capture device.
-          Process.group_leader(writer, Process.group_leader())
-
+      log =
+        capture_log(fn ->
           # Not a meter payload at all - stands in for anything that makes a
           # write blow up, which must not cost us the rest of the track.
           PlayWriter.sync_votes(writer, "not a voting map")
@@ -133,7 +129,7 @@ defmodule Rvrb.PlayWriterTest do
           assert PlayWriter.current_play_id(writer) == play_id
         end)
 
-      assert output =~ "PlayWriter sync_votes failed"
+      assert log =~ "PlayWriter sync_votes failed"
       assert Process.alive?(writer)
       assert votes(play_id) == MapSet.new([{listener.id, "dope"}])
     end
