@@ -319,7 +319,7 @@ defmodule Rvrb.Commands do
     table =
       Html.table(
         rows,
-        [{:dj, "DJ"}, {:track_length, "Avg track"}, {:next_play, "Next play in"}],
+        [{:dj, "DJ"}, {:track_length, "Avg track length"}, {:next_play, "Next play in"}],
         title: "DJ rotation - one lap ≈ #{Rotation.format_ms(total_ms)}"
       )
 

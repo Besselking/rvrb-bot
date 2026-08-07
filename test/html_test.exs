@@ -11,11 +11,19 @@ defmodule HtmlTest do
       assert html =~ "<tr><td>a</td><td>b</td></tr>"
     end
 
-    test "a title replaces the per-key headers, padded out to the column count" do
+    test "a title sits above the per-key headers, padded out to the column count" do
       html = Html.table([%{label: "a", value: "b"}], @keys, title: "Bess's stats")
 
-      assert html =~ "<thead><tr><th>Bess&#39;s stats</th><th></th></tr></thead>"
-      refute html =~ "<th>Label</th>"
+      assert html =~
+               "<thead><tr><th>Bess&#39;s stats</th><th></th></tr>" <>
+                 "<tr><th>Label</th><th>Value</th></tr></thead>"
+    end
+
+    test "unlabelled keys render no per-key header row under the title" do
+      html =
+        Html.table([%{label: "a", value: "b"}], [{:label, nil}, {:value, nil}], title: "Stats")
+
+      assert html =~ "<thead><tr><th>Stats</th><th></th></tr></thead>"
     end
 
     test "a section value renders as a header row inside the body" do

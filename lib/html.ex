@@ -40,9 +40,14 @@ defmodule Html do
   plain text and wrap anything that's deliberately markup in `{:safe, html}`.
 
   Pass `title: "..."` in `opts` for a single header cell (e.g. a
-  "so-and-so's stats" title row) instead of one `<th>` per key. RVRB's
-  chat HTML doesn't honor `colspan`, so the remaining columns are padded
-  out with empty `<th>`s instead of spanning the title cell across them.
+  "so-and-so's stats" title row) above the per-key headers. RVRB's chat
+  HTML doesn't honor `colspan`, so the remaining columns are padded out
+  with empty `<th>`s instead of spanning the title cell across them.
+
+  A table whose keys are all unlabelled (`nil`/`""` header names) renders
+  no per-key header row at all - a two-column label/value layout like
+  `\\stats` reads fine without one, and an empty row of `<th>`s under the
+  title is just noise.
 
   A value of the shape `%{section: "..."}` renders as a header row in the
   middle of the body instead of a data row, for splitting a long table
@@ -52,13 +57,10 @@ defmodule Html do
     header =
       case Keyword.get(opts, :title) do
         nil ->
-          header_names =
-            Enum.map(keys, fn {_, header_name} -> ["<th>", escape(header_name), "</th>"] end)
-
-          ["<thead><tr>", header_names, "</tr></thead>"]
+          ["<thead>", column_header_row(keys), "</thead>"]
 
         title ->
-          ["<thead>", header_row(title, keys), "</thead>"]
+          ["<thead>", header_row(title, keys), column_header_row(keys), "</thead>"]
       end
 
     rows =
@@ -90,5 +92,14 @@ defmodule Html do
   defp header_row(text, keys) do
     padding = List.duplicate("<th></th>", max(length(keys) - 1, 0))
     ["<tr><th>", escape(text), "</th>", padding, "</tr>"]
+  end
+
+  defp column_header_row(keys) do
+    if Enum.all?(keys, fn {_key, header_name} -> header_name in [nil, ""] end) do
+      []
+    else
+      cells = Enum.map(keys, fn {_key, header_name} -> ["<th>", escape(header_name), "</th>"] end)
+      ["<tr>", cells, "</tr>"]
+    end
   end
 end
