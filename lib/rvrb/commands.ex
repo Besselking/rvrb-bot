@@ -5,8 +5,9 @@ defmodule Rvrb.Commands do
   Keeping this separate from `Rvrb.WebSocket` means the command registry,
   argument parsing, and handler logic can be read/tested/changed without
   touching the Fresh connection/GenServer plumbing. Handlers still talk to
-  the socket through `Rvrb.WebSocket.chat/1` and `Rvrb.WebSocket.send_message/1`
-  since sending a reply is inherently tied to the live connection.
+  the socket, but through the `Rvrb.Socket` behaviour rather than
+  `Rvrb.WebSocket` directly, so a test can stub it and assert on what a
+  handler decided to say.
   """
 
   alias Rvrb.AiAnalyzer
@@ -17,7 +18,6 @@ defmodule Rvrb.Commands do
   alias Rvrb.SpotifyServer
   alias Rvrb.SpotifyUrl
   alias Rvrb.User
-  alias Rvrb.WebSocket
 
   @prefix "\\"
 
@@ -147,14 +147,43 @@ defmodule Rvrb.Commands do
   defp dispatch(name, args, params, state) do
     case Enum.find(@commands, &(&1.name == name)) do
       nil ->
-        WebSocket.chat("Unknown command \\#{name}. Try \\help for a list of commands.")
+        chat("Unknown command \\#{name}. Try \\help for a list of commands.")
         {:ok, state}
 
       %{handler: handler} ->
         IO.puts("command \\#{name} #{args}")
-        handler.(args, params, state)
+        run(name, handler, args, params, state)
     end
   end
+
+  # Handlers run inside the websocket connection process, so anything they
+  # raise (or any GenServer call of theirs that exits) takes the connection
+  # down with it and loses everything the socket was holding - the track
+  # queue, the DJ list, the current track. A broken command should cost the
+  # room one unhelpful chat line, not a reconnect, so nothing escapes here.
+  defp run(name, handler, args, params, state) do
+    handler.(args, params, state)
+  rescue
+    error ->
+      log_command_failure(name, Exception.format(:error, error, __STACKTRACE__))
+      {:ok, state}
+  catch
+    kind, reason ->
+      log_command_failure(name, Exception.format(kind, reason, __STACKTRACE__))
+      {:ok, state}
+  end
+
+  defp log_command_failure(name, formatted) do
+    IO.puts("command \\#{name} failed:\n#{formatted}")
+    chat("Something went wrong running \\#{name}, sorry. It's been logged.")
+  end
+
+  ## -- socket ----------------------------------------------------------
+
+  defp chat(message), do: Rvrb.Socket.impl().chat(message)
+  defp send_message(message), do: Rvrb.Socket.impl().send_message(message)
+  defp send_queue(queue), do: Rvrb.Socket.impl().send_queue(queue)
+  defp edit_user(params), do: Rvrb.Socket.impl().edit_user(params)
 
   defp admin?(user_id) do
     admins = Application.get_env(:rvrb, :bot_admins)
@@ -165,29 +194,37 @@ defmodule Rvrb.Commands do
 
   def help("", _params, state) do
     table = Html.table(@commands, [{:usage, "Command"}, {:description, "Description"}])
-    WebSocket.chat(table)
+    chat(table)
     {:ok, state}
   end
 
   def help(name, _params, state) do
     case Enum.find(@commands, &(&1.name == String.downcase(name))) do
       nil ->
-        WebSocket.chat("Unknown command \\#{name}. Try \\help for a list of commands.")
+        chat("Unknown command \\#{name}. Try \\help for a list of commands.")
 
       %{usage: usage, description: description} ->
-        WebSocket.chat("<strong>#{usage}</strong> - #{description}")
+        chat("<strong>#{usage}</strong> - #{description}")
     end
 
     {:ok, state}
   end
 
   def qg("", _params, state) do
-    WebSocket.chat(GenreServer.get_genre())
+    case GenreServer.get_genre() do
+      nil -> chat("I don't have any genres to suggest right now.")
+      genre -> chat(genre)
+    end
+
     {:ok, state}
   end
 
   def qg(keyword, _params, state) do
-    WebSocket.chat(GenreServer.get_genre(keyword))
+    case GenreServer.get_genre(keyword) do
+      nil -> chat("No genres matching \"#{keyword}\" - try a broader keyword.")
+      genre -> chat(genre)
+    end
+
     {:ok, state}
   end
 
@@ -215,14 +252,14 @@ defmodule Rvrb.Commands do
         {:used_skip, "Used first-time skip"}
       ])
 
-    WebSocket.chat(table)
+    chat(table)
     {:ok, state}
   end
 
   def rotation(_args, params, state) do
     case state.djs do
       [] ->
-        WebSocket.chat("Nobody's DJing right now, so there's no rotation to estimate.")
+        chat("Nobody's DJing right now, so there's no rotation to estimate.")
 
       djs ->
         estimate =
@@ -231,7 +268,7 @@ defmodule Rvrb.Commands do
             fallback_ms: Play.average_duration()
           )
 
-        WebSocket.chat(rotation_table(estimate, User.get_users(djs), params["userId"]))
+        chat(rotation_table(estimate, User.get_users(djs), params["userId"]))
     end
 
     {:ok, state}
@@ -316,18 +353,30 @@ defmodule Rvrb.Commands do
   end
 
   def spin(_args, _params, state) do
-    track = state.current_track
-    album_art = hd(track["album"]["images"])["url"]
-
-    WebSocket.chat("<span class=\"image-container\">
-      <img class=\"ui image circular spin\" src=\"#{album_art}\"/>
-    </span>")
+    case album_art(state.current_track) do
+      nil -> chat("No track is currently playing.")
+      url -> chat(spin_html(url))
+    end
 
     {:ok, state}
   end
 
+  @doc """
+  The first (largest) album image of a raw RVRB track, or nil when there's
+  nothing to spin - no track has played yet, or the track came without
+  album art.
+  """
+  def album_art(%{"album" => %{"images" => [image | _]}}) when is_map(image), do: image["url"]
+  def album_art(_track), do: nil
+
+  defp spin_html(url) do
+    "<span class=\"image-container\">
+      <img class=\"ui image circular spin\" src=\"#{url}\"/>
+    </span>"
+  end
+
   def queue("", _params, state) do
-    WebSocket.send_queue(state.queue)
+    send_queue(state.queue)
     {:ok, state}
   end
 
@@ -345,20 +394,20 @@ defmodule Rvrb.Commands do
               SpotifyServer.album_tracks(id)
 
             :error ->
-              WebSocket.chat("error queuing: #{id}")
+              chat("error queuing: #{id}")
               []
           end
 
-      WebSocket.send_queue(queue)
+      send_queue(queue)
       {:ok, %{state | queue: queue}}
     else
-      WebSocket.chat("Sorry, you're not allowed to queue tracks")
+      chat("Sorry, you're not allowed to queue tracks")
       {:ok, state}
     end
   end
 
   def join(_args, _params, state) do
-    WebSocket.send_message(%{method: "joinDjs"})
+    send_message(%{method: "joinDjs"})
     {:ok, state}
   end
 
@@ -376,10 +425,10 @@ defmodule Rvrb.Commands do
             {:ai_verdict, "AI spam guess"}
           ])
 
-        WebSocket.chat(table)
+        chat(table)
 
       _no_track ->
-        WebSocket.chat("No track is currently playing.")
+        chat("No track is currently playing.")
     end
 
     {:ok, state}
@@ -411,17 +460,27 @@ defmodule Rvrb.Commands do
   end
 
   def skip(_args, %{"userId" => user_id}, state) do
-    user = User.get(user_id)
+    skip_for(User.get(user_id), user_id, state)
+  end
+
+  # The bot only learns about someone from an `updateChannelUsers` push, so
+  # a user who typed \skip before the first one landed has no record yet.
+  defp skip_for(nil, _user_id, state) do
+    chat("I don't know you yet - stick around a moment and try again.")
+    {:ok, state}
+  end
+
+  defp skip_for(user, user_id, state) do
     current_djs = state.djs
 
     cond do
       user.received_skip ->
-        WebSocket.chat(
+        chat(
           "You've already received a skip, if you lost your position due to a disconnect ask a mod for help."
         )
 
       user_id not in current_djs ->
-        WebSocket.chat("You have to be DJing to use \\skip")
+        chat("You have to be DJing to use \\skip")
 
       true ->
         djs_without = current_djs -- [user_id]
@@ -434,16 +493,16 @@ defmodule Rvrb.Commands do
           end
 
         if reordered == current_djs do
-          WebSocket.chat("Skipping wont do anything right now.")
+          chat("Skipping wont do anything right now.")
         else
-          WebSocket.send_message(%{
+          send_message(%{
             jsonrpc: "2.0",
             method: "updateDjs",
             params: %{djs: reordered}
           })
 
           User.update_received_skip(user)
-          WebSocket.chat("You're next up!")
+          chat("You're next up!")
         end
     end
 
@@ -457,9 +516,7 @@ defmodule Rvrb.Commands do
   def stats(args, _params, state) do
     case parse_tagged_username(args) do
       nil ->
-        WebSocket.chat(
-          "Tag someone with @ to see their stats, or use \\stats alone for your own."
-        )
+        chat("Tag someone with @ to see their stats, or use \\stats alone for your own.")
 
         {:ok, state}
 
@@ -496,14 +553,14 @@ defmodule Rvrb.Commands do
     if admin?(user_id) do
       case parse_editbot(args) do
         {:ok, field, value} ->
-          WebSocket.edit_user(%{field => value})
-          WebSocket.chat("Set the bot's #{field} to #{value}")
+          edit_user(%{field => value})
+          chat("Set the bot's #{field} to #{value}")
 
         {:error, message} ->
-          WebSocket.chat(message)
+          chat(message)
       end
     else
-      WebSocket.chat("Sorry, you're not allowed to change the bot's profile")
+      chat("Sorry, you're not allowed to change the bot's profile")
     end
 
     {:ok, state}
@@ -554,12 +611,12 @@ defmodule Rvrb.Commands do
   end
 
   defp render_stats(nil, not_found_message, state) do
-    WebSocket.chat(not_found_message)
+    chat(not_found_message)
     {:ok, state}
   end
 
   defp render_stats(user, _not_found_message, state) do
-    WebSocket.chat(stats_table(user, Play.stats_for(user.id)))
+    chat(stats_table(user, Play.stats_for(user.id)))
     {:ok, state}
   end
 
