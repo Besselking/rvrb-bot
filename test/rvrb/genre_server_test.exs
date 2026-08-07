@@ -12,15 +12,42 @@ defmodule Rvrb.GenreServerTest do
   end
 
   describe "matching/2" do
-    @genres ["pop", "post-rock", "Detroit Techno", "hard rock"]
+    # Lines in the real `priv/genres.txt` format - the name carries an
+    # example track, and the words in that example are not the genre.
+    @genres [
+      ~s|pop - (e.g. Demi Lovato "Heart Attack")|,
+      ~s|post-rock - (e.g. Mogwai "Take Me Somewhere Nice")|,
+      ~s|Detroit Techno - (e.g. Underground Resistance "Transition")|,
+      ~s|hard rock - (e.g. Kiss "Rock and Roll All Nite")|,
+      ~s|rap - (e.g. Gucci Mane "Wake Up in the Sky")|
+    ]
 
-    test "finds genres containing the keyword" do
-      assert GenreServer.matching(@genres, "rock") == ["post-rock", "hard rock"]
+    test "finds genres whose name contains the keyword" do
+      assert GenreServer.matching(@genres, "rock") == [
+               ~s|post-rock - (e.g. Mogwai "Take Me Somewhere Nice")|,
+               ~s|hard rock - (e.g. Kiss "Rock and Roll All Nite")|
+             ]
+    end
+
+    test "ignores the example track" do
+      # "sky" is only ever a track title here, and "kiss" only an artist.
+      assert GenreServer.matching(@genres, "sky") == []
+      assert GenreServer.matching(@genres, "kiss") == []
     end
 
     test "ignores case on both sides" do
-      assert GenreServer.matching(@genres, "ROCK") == ["post-rock", "hard rock"]
-      assert GenreServer.matching(@genres, "techno") == ["Detroit Techno"]
+      assert GenreServer.matching(@genres, "ROCK") == [
+               ~s|post-rock - (e.g. Mogwai "Take Me Somewhere Nice")|,
+               ~s|hard rock - (e.g. Kiss "Rock and Roll All Nite")|
+             ]
+
+      assert GenreServer.matching(@genres, "techno") == [
+               ~s|Detroit Techno - (e.g. Underground Resistance "Transition")|
+             ]
+    end
+
+    test "matches a bare name with no example" do
+      assert GenreServer.matching(["shoegaze"], "gaze") == ["shoegaze"]
     end
 
     test "returns an empty list when nothing matches" do

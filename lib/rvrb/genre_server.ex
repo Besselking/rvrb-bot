@@ -42,15 +42,27 @@ defmodule Rvrb.GenreServer do
   end
 
   @doc """
-  The genres containing `keyword`, ignoring case on both sides - somebody
-  typing `\\qg Rock` means the same thing as `\\qg rock`.
+  The genres whose name contains `keyword`, ignoring case on both sides -
+  somebody typing `\\qg Rock` means the same thing as `\\qg rock`.
+
+  Only the name is matched, not the example track that follows it: `\\qg
+  sky` asking for a genre shouldn't be answered with `rap - (e.g. Gucci
+  Mane "Wake Up in the Sky")`. The full line is still what comes back,
+  example and all.
   """
   def matching(genre_list, keyword) do
     keyword = String.downcase(keyword)
 
     Enum.filter(genre_list, fn genre ->
-      genre |> String.downcase() |> String.contains?(keyword)
+      genre |> name() |> String.downcase() |> String.contains?(keyword)
     end)
+  end
+
+  # Every line in `priv/genres.txt` is `<name> - (e.g. <artist> "<track>")`.
+  # A line without the suffix is a bare name, so it is its own name.
+  @example_separator " - (e.g."
+  defp name(genre) do
+    genre |> String.split(@example_separator, parts: 2) |> hd()
   end
 
   # `Enum.random/1` raises on an empty list, and this GenServer's caller is
