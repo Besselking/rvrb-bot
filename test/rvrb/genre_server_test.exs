@@ -3,6 +3,14 @@ defmodule Rvrb.GenreServerTest do
 
   alias Rvrb.GenreServer
 
+  # The application doesn't start this one in test (see
+  # `Rvrb.Application.start/2`), so the tests that call the running server
+  # start their own.
+  setup do
+    start_supervised!({GenreServer, Application.app_dir(:rvrb, "priv/genres.txt")})
+    :ok
+  end
+
   describe "matching/2" do
     @genres ["pop", "post-rock", "Detroit Techno", "hard rock"]
 

@@ -5,7 +5,7 @@ defmodule Rvrb.WebSocketTest do
   the socket along with its queue and DJ state.
   """
 
-  use ExUnit.Case, async: false
+  use Rvrb.DataCase, async: false
 
   import ExUnit.CaptureIO
 

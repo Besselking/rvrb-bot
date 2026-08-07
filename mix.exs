@@ -7,10 +7,16 @@ defmodule Rvrb.MixProject do
       version: "0.1.0",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       deps: deps()
     ]
   end
+
+  # test/support holds the DataCase and fixture helpers - compiled modules
+  # rather than test files, so they're only on the path in test.
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # `mix test` needs the test database to exist and be migrated - do it here
   # so a local run and a CI run go through exactly the same steps.

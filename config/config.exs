@@ -8,6 +8,10 @@ config :rvrb, Rvrb.Repo,
   database: "rvrb_repo",
   hostname: "localhost"
 
+if config_env() == :test do
+  import_config "test.exs"
+end
+
 # dev/test read their secrets (bot token, DB credentials) from a local,
 # gitignored file. prod has no such file - it gets everything at boot
 # from the environment, see config/runtime.exs.
