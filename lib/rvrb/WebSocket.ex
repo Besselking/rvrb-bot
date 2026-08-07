@@ -3,6 +3,8 @@ defmodule Rvrb.WebSocket do
   alias Rvrb.PlayTracker
   use Fresh
 
+  @behaviour Rvrb.Socket
+
   def send_message(message) do
     data = JSON.encode!(message)
     IO.puts("OUT: #{data}")
@@ -117,7 +119,11 @@ defmodule Rvrb.WebSocket do
   end
 
   def handle_error(error, _state) do
-    IO.puts("ERROR: #{error}")
+    # `inspect` rather than interpolation: most errors reaching here are
+    # tuples (`{:establishing_failed, %Mint.WebSocket.UpgradeFailureError{}}`
+    # and friends), and String.Chars raising here would turn a reconnectable
+    # error into a crash.
+    IO.puts("ERROR: #{inspect(error)}")
     :reconnect
   end
 
@@ -200,9 +206,28 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
+  # RVRB asks for a track when it's the bot's turn to DJ. With an empty
+  # queue there's nothing to hand it, so answer the RPC with an error and
+  # step off the decks rather than sitting there dead - an admin can
+  # \queue something and \join again.
+  def handle_message(%{"method" => "nextChannelTrack"} = params, %{queue: []} = state) do
+    IO.puts("nextChannelTrack! (queue empty)")
+
+    error_response =
+      JSON.encode!(%{
+        error: %{code: -32000, message: "no tracks queued"},
+        id: params["id"]
+      })
+
+    chat("My queue is empty, so I'm stepping off the decks - queue me something with \\queue.")
+    send_message(%{method: "leaveDjs"})
+
+    IO.puts("OUT: #{error_response}")
+    {:reply, {:text, error_response}, state}
+  end
+
   def handle_message(%{"method" => "nextChannelTrack"} = params, state) do
     IO.puts("nextChannelTrack!")
-    %{"id" => id} = params
 
     [next_track | queue] = state.queue
 
@@ -211,7 +236,7 @@ defmodule Rvrb.WebSocket do
         result: %{
           track: next_track
         },
-        id: id
+        id: params["id"]
       })
 
     IO.puts("OUT: #{track_response}")
@@ -226,7 +251,14 @@ defmodule Rvrb.WebSocket do
 
     PlayTracker.sync_votes(state.current_play_id, voting)
 
-    [_current_dj | djs] = state.djs
+    # Everyone in the queue except whoever is playing right now. A meter
+    # can arrive with no DJs at all (the last one stepped down as the
+    # update went out), which is a no-op for the auto-vote below.
+    djs =
+      case state.djs do
+        [_current_dj | rest] -> rest
+        [] -> []
+      end
 
     doped =
       if not Enum.empty?(djs) and Enum.empty?(djs -- dopes) and not state.doped do
