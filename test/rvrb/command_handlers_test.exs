@@ -9,7 +9,7 @@ defmodule Rvrb.CommandHandlersTest do
   process instead of a live websocket.
   """
 
-  use ExUnit.Case, async: false
+  use Rvrb.DataCase, async: false
 
   import ExUnit.CaptureIO
 
@@ -32,6 +32,10 @@ defmodule Rvrb.CommandHandlersTest do
   end
 
   setup do
+    # `\qg` calls into the GenreServer, which the application doesn't start
+    # in test - see `Rvrb.Application.start/2`.
+    start_supervised!({Rvrb.GenreServer, Application.app_dir(:rvrb, "priv/genres.txt")})
+
     previous = Application.get_env(:rvrb, :socket)
     Application.put_env(:rvrb, :socket, SocketStub)
 
