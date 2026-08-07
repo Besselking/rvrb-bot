@@ -42,15 +42,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: ${{ env.ELIXIR_VERSION }}
-          otp-version: ${{ env.OTP_VERSION }}
-
       # config/config.exs unconditionally imports config/test.secret.exs for
       # dev/test, and that file is gitignored (real deploys supply real
-      # secrets). Mix fails on *every* command without it - including
-      # local.hex - so the stand-in has to be written before anything else.
+      # secrets). Mix fails on *every* command without it, and setup-beam runs
+      # mix local.hex and mix local.rebar from this directory as part of its
+      # own setup - so the stand-in has to be written before setup-beam, not
+      # just before our first mix step.
       - name: Write the test secrets stand-in
         run: |
           cat > config/test.secret.exs << 'EOF'
@@ -62,6 +59,11 @@ jobs:
             username: "postgres",
             password: "postgres"
           EOF
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
 
       - name: Cache deps and build
         uses: actions/cache@v4
