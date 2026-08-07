@@ -14,6 +14,7 @@ defmodule Rvrb.CommandHandlersTest do
   import ExUnit.CaptureLog
 
   alias Rvrb.Commands
+  alias Rvrb.WebSocket.State
 
   defmodule SocketStub do
     @behaviour Rvrb.Socket
@@ -69,14 +70,14 @@ defmodule Rvrb.CommandHandlersTest do
 
   describe "\\spin" do
     test "says nothing is playing when no track has played yet" do
-      assert {:ok, _state} = handle("\\spin", %{}, %{current_track: %{}})
+      assert {:ok, _state} = handle("\\spin", %{}, %State{})
       assert_received {:chat, "No track is currently playing."}
     end
 
     test "spins the current track's album art" do
       track = %{"album" => %{"images" => [%{"url" => "https://img/cover.jpg"}]}}
 
-      assert {:ok, _state} = handle("\\spin", %{}, %{current_track: track})
+      assert {:ok, _state} = handle("\\spin", %{}, %State{current_track: track})
       assert_received {:chat, message}
       assert message =~ "https://img/cover.jpg"
       assert message =~ "circular spin"
@@ -101,7 +102,7 @@ defmodule Rvrb.CommandHandlersTest do
     test "tells a user we've never seen to try again later" do
       params = %{"userId" => "no-such-user-#{System.unique_integer([:positive])}"}
 
-      assert {:ok, _state} = handle("\\skip", params, %{djs: []})
+      assert {:ok, _state} = handle("\\skip", params, %State{djs: []})
       assert_received {:chat, message}
       assert message =~ "I don't know you yet"
       refute_received {:send_message, _}
@@ -110,8 +111,9 @@ defmodule Rvrb.CommandHandlersTest do
 
   describe "dispatch" do
     test "a raising handler degrades to a chat message, not a crash" do
-      # \djs reads state.djs, so a state without it raises a KeyError deep
-      # inside the handler - stand-in for any future handler bug.
+      # \djs reads state.djs, so a bare map (rather than a `%State{}`)
+      # raises a KeyError deep inside the handler - stand-in for any
+      # future handler bug.
       assert {:ok, _state} = handle("\\djs", %{}, %{})
       assert_received {:chat, message}
       assert message =~ "Something went wrong running \\djs"
