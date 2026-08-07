@@ -1,6 +1,7 @@
 defmodule Rvrb.WebSocket do
   alias Rvrb.Commands
   alias Rvrb.PlayWriter
+  alias Rvrb.WebSocket.State
   use Fresh
 
   require Logger
@@ -85,18 +86,7 @@ defmodule Rvrb.WebSocket do
     Fresh.start_link(
       "wss://app.rvrb.one/ws-bot?apiKey=#{bot_key}",
       Rvrb.WebSocket,
-      %{
-        djs: [],
-        doped: false,
-        starred: false,
-        current_track: %{},
-        # Monotonic ms at which the current track started, so `\rotation`
-        # can subtract the elapsed part of it from its estimate. Monotonic
-        # rather than wall clock because it's only ever used as an
-        # interval, and nil until we've actually seen a track start.
-        current_track_started_at: nil,
-        queue: []
-      },
+      %State{},
       name: {:local, Connection}
     )
   end
@@ -137,13 +127,6 @@ defmodule Rvrb.WebSocket do
 
     Logger.info("alert! #{inspect(payload)} #{inspect(synctime)}")
 
-    state =
-      if String.ends_with?(payload, "chat messages were deleted by bot_1728728144538") do
-        Map.put(state, :last_deletion, synctime)
-      else
-        state
-      end
-
     {:ok, state}
   end
 
@@ -171,7 +154,7 @@ defmodule Rvrb.WebSocket do
   def handle_message(%{"method" => "ready", "params" => params}, state) do
     Logger.info("ready! #{inspect(params)}")
 
-    state = Map.put(state, :channelId, params["channelId"])
+    state = %{state | channel_id: params["channelId"]}
 
     join_message =
       JSON.encode!(%{
@@ -188,8 +171,6 @@ defmodule Rvrb.WebSocket do
 
   def handle_message(%{"method" => "keepAwake", "params" => params}, state) do
     Logger.debug("keepAwake! #{inspect(params)}")
-
-    state = Map.put(state, :latency, params["latency"])
 
     keepAwake_message =
       JSON.encode!(%{
@@ -306,28 +287,6 @@ defmodule Rvrb.WebSocket do
     end)
 
     {:ok, %{state | doped: doped, starred: starred}}
-  end
-
-  def handle_message(
-        %{"method" => "playChannelTrack", "params" => params},
-        %{autodope: true} = state
-      ) do
-    track = params["track"]
-
-    Logger.info(
-      "playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}"
-    )
-
-    dope()
-
-    PlayWriter.record(state.djs, track)
-
-    {:ok,
-     %{
-       state
-       | current_track: track,
-         current_track_started_at: System.monotonic_time(:millisecond)
-     }}
   end
 
   def handle_message(

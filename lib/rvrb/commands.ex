@@ -291,8 +291,8 @@ defmodule Rvrb.Commands do
   # track carried no duration, or the bot came up mid-track and never saw
   # this one start.
   defp remaining_track_ms(state) do
-    started_at = Map.get(state, :current_track_started_at)
-    duration_ms = PlayTracker.duration_ms(Map.get(state, :current_track))
+    started_at = state.current_track_started_at
+    duration_ms = PlayTracker.duration_ms(state.current_track)
 
     if is_integer(started_at) and is_integer(duration_ms) do
       max(duration_ms - (System.monotonic_time(:millisecond) - started_at), 0)
