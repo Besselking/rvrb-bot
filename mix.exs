@@ -39,7 +39,6 @@ defmodule Rvrb.MixProject do
     [
       # Vendored, not pulled from Hex - see vendor/fresh/README.md for why.
       {:fresh, path: "vendor/fresh"},
-      {:poison, "~> 3.1"},
       {:ecto_sql, "~> 3.12"},
       {:postgrex, "~> 0.20.0"},
       {:timex, "~> 3.7.11"},

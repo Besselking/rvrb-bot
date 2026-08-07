@@ -53,8 +53,10 @@ in
       description = ''
         Extra, non-secret environment variables for the service, e.g.
         `RVRB_DB_HOSTNAME`, `RVRB_DB_NAME`, `RVRB_DB_PORT`,
-        `RVRB_SPOTIFY_CALLBACK_URL`, `RVRB_SPOTIFY_SCOPES`, and
-        `RVRB_LOG_LEVEL` (any `Logger` level; defaults to `info`).
+        `RVRB_SPOTIFY_CALLBACK_URL`, `RVRB_SPOTIFY_SCOPES`,
+        `RVRB_LOG_LEVEL` (any `Logger` level; defaults to `info`), and
+        `RVRB_BOT_ADMINS` (comma-separated RVRB user ids allowed to run
+        the admin-only commands).
       '';
     };
 

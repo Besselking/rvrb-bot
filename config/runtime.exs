@@ -3,6 +3,18 @@ import Config
 # Evaluated at boot (mix phoenix-style), not at compile time - this is what
 # lets a release built once (e.g. by Nix) be configured per-deployment via
 # plain environment variables instead of baking secrets into the build.
+
+# Who may run the admin-only commands (\queue, \editbot): a comma-separated
+# list of RVRB user ids. This lives here rather than in config.exs so that
+# changing the list is a restart, not a rebuild. The default is the id that
+# used to be hardcoded, so a deployment that sets nothing keeps working.
+config :rvrb,
+  bot_admins:
+    System.get_env("RVRB_BOT_ADMINS", "635f69be2f9b8fe2ed7209f8")
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+
 if config_env() == :prod do
   config :rvrb, bot_token: System.fetch_env!("RVRB_BOT_TOKEN")
 
