@@ -1,6 +1,6 @@
 defmodule Rvrb.WebSocket do
   alias Rvrb.Commands
-  alias Rvrb.PlayTracker
+  alias Rvrb.PlayWriter
   use Fresh
 
   @behaviour Rvrb.Socket
@@ -89,7 +89,6 @@ defmodule Rvrb.WebSocket do
         starred: false,
         debug_djs: true,
         current_track: %{},
-        current_play_id: nil,
         # Monotonic ms at which the current track started, so `\rotation`
         # can subtract the elapsed part of it from its estimate. Monotonic
         # rather than wall clock because it's only ever used as an
@@ -253,7 +252,7 @@ defmodule Rvrb.WebSocket do
     dopes = for {userid, vote} <- voting, vote["dope"] > 0, do: userid
     stars = for {userid, vote} <- voting, vote["star"] > 0, do: userid
 
-    PlayTracker.sync_votes(state.current_play_id, voting)
+    PlayWriter.sync_votes(voting)
 
     # Everyone in the queue except whoever is playing right now. A meter
     # can arrive with no DJs at all (the last one stepped down as the
@@ -311,13 +310,12 @@ defmodule Rvrb.WebSocket do
     IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
     dope()
 
-    play_id = PlayTracker.record(state.djs, track)
+    PlayWriter.record(state.djs, track)
 
     {:ok,
      %{
        state
        | current_track: track,
-         current_play_id: play_id,
          current_track_started_at: System.monotonic_time(:millisecond)
      }}
   end
@@ -330,7 +328,7 @@ defmodule Rvrb.WebSocket do
     IO.puts("playChannelTrack! #{inspect(track["name"])} - #{inspect(track["artist"]["name"])}")
     # IO.puts("playChannelTrack! #{inspect(track)}")
 
-    play_id = PlayTracker.record(state.djs, track)
+    PlayWriter.record(state.djs, track)
 
     {:ok,
      %{
@@ -338,7 +336,6 @@ defmodule Rvrb.WebSocket do
        | doped: false,
          starred: false,
          current_track: track,
-         current_play_id: play_id,
          current_track_started_at: System.monotonic_time(:millisecond)
      }}
   end

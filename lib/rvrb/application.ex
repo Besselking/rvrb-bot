@@ -7,7 +7,11 @@ defmodule Rvrb.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [Rvrb.Repo] ++ connection_children()
+    # `Rvrb.PlayWriter` sits with the repo rather than with the connection
+    # below: it opens nothing, and idles until the socket casts it a write,
+    # so there's no reason to keep it out of test. A test that wants to
+    # drive one starts its own instance against its sandbox connection.
+    children = [Rvrb.Repo, Rvrb.PlayWriter] ++ connection_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options

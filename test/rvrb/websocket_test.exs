@@ -38,7 +38,7 @@ defmodule Rvrb.WebSocketTest do
 
   describe "updateChannelMeter" do
     test "handles a meter that arrives with no DJs at all" do
-      state = %{djs: [], doped: false, starred: false, current_play_id: nil}
+      state = %{djs: [], doped: false, starred: false}
 
       assert {:ok, %{doped: false, starred: false}} =
                handle(
@@ -48,7 +48,7 @@ defmodule Rvrb.WebSocketTest do
     end
 
     test "still doesn't auto-vote when the only DJ is the one playing" do
-      state = %{djs: ["dj-a"], doped: false, starred: false, current_play_id: nil}
+      state = %{djs: ["dj-a"], doped: false, starred: false}
 
       assert {:ok, %{doped: false, starred: false}} =
                handle(
