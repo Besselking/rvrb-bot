@@ -143,7 +143,28 @@ defmodule Rvrb.CommandsTest do
     end
 
     test "titles the table with the user's display name", %{user: user, empty_stats: stats} do
-      assert Commands.stats_table(user, stats) =~ "<th>Bess 🐸's stats</th>"
+      assert Commands.stats_table(user, stats) =~ "<th>Bess 🐸&#39;s stats</th>"
+    end
+
+    test "escapes markup in names it doesn't control", %{user: user, empty_stats: stats} do
+      user = %{user | display_name: "<img src=x onerror=alert(1)>"}
+
+      stats = %{
+        stats
+        | most_played: %{
+            track_name: "<b>Alpha</b>",
+            artist_names: ["Nova & Co"],
+            play_count: 3
+          }
+      }
+
+      html = Commands.stats_table(user, stats)
+
+      assert html =~ "&lt;img src=x onerror=alert(1)&gt;"
+      assert html =~ "<td>&lt;b&gt;Alpha&lt;/b&gt; — Nova &amp; Co (3×)</td>"
+      refute html =~ "<img"
+      # The section headers still get to be markup.
+      assert html =~ "<span class=\"alert\">Behind the decks</span>"
     end
 
     test "calls stars favorites, never stars", %{user: user, empty_stats: stats} do
