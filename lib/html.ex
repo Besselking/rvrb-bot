@@ -32,6 +32,25 @@ defmodule Html do
 
   def escape(value), do: value |> to_string() |> escape()
 
+  @unescapes %{
+    "&amp;" => "&",
+    "&lt;" => "<",
+    "&gt;" => ">",
+    "&quot;" => "\"",
+    "&#39;" => "'"
+  }
+
+  @doc """
+  Reverses `escape/1`, for the handful of places that read a value back out
+  of markup RVRB built - an image URL out of a chat image embed, say, where
+  a query string arrives with its `&`s escaped.
+
+  Only the entities `escape/1` produces are decoded; anything else is left
+  alone.
+  """
+  def unescape(value) when is_binary(value),
+    do: String.replace(value, ~w(&amp; &lt; &gt; &quot; &#39;), &Map.fetch!(@unescapes, &1))
+
   @doc """
   Renders a `chat-table` from `values` (a list of maps/keyword lists) using
   `keys` (a list of `{key, header_name}` pairs) to pick and label columns.

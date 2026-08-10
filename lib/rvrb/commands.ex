@@ -96,15 +96,17 @@ defmodule Rvrb.Commands do
     }
   ]
 
-  # Chat-friendly field name => RVRB `editUser` param, in the order \editbot
-  # lists them.
+  # Chat-friendly field name => {RVRB `editUser` param, kind}, in the order
+  # \editbot lists them. The `:image` fields take a URL, which RVRB turns
+  # into an image embed on its way through chat, so their values need
+  # unwrapping first - see `extract_image_url/1`.
   @bot_fields [
-    {"displayname", :displayName},
-    {"bio", :bio},
-    {"image", :image},
-    {"djimage", :djImage},
-    {"thumbsup", :thumbsUpImage},
-    {"thumbsdown", :thumbsDownImage}
+    {"displayname", :displayName, :text},
+    {"bio", :bio, :text},
+    {"image", :image, :image},
+    {"djimage", :djImage, :image},
+    {"thumbsup", :thumbsUpImage, :image},
+    {"thumbsdown", :thumbsDownImage, :image}
   ]
 
   @doc "Returns the registered commands, in definition order."
@@ -587,7 +589,7 @@ defmodule Rvrb.Commands do
 
   defp bot_edit(field, "") do
     case bot_field(field) do
-      {:ok, _param} ->
+      {:ok, _param, _kind} ->
         {:error, "\\editbot #{String.downcase(field)} needs a value to set it to."}
 
       :error ->
@@ -597,8 +599,41 @@ defmodule Rvrb.Commands do
 
   defp bot_edit(field, value) do
     case bot_field(field) do
-      {:ok, param} -> {:ok, param, value}
-      :error -> {:error, "The bot has no #{Html.escape(field)} - try one of #{bot_field_list()}"}
+      {:ok, param, kind} ->
+        {:ok, param, bot_value(kind, value)}
+
+      :error ->
+        {:error, "The bot has no #{Html.escape(field)} - try one of #{bot_field_list()}"}
+    end
+  end
+
+  defp bot_value(:image, value), do: extract_image_url(value)
+  defp bot_value(:text, value), do: value
+
+  # RVRB rewrites an image link in a chat message into an embed before the
+  # bot ever sees it, so `\editbot image <url>` arrives as markup:
+  #
+  #     <div class="image-container"><a href="URL" target="_blank"/>
+  #       <img src="URL"/></a></div>
+  #
+  # The `<img src>` is the URL that was typed; the wrapping `<a href>` is
+  # the fallback for embeds shaped differently than the one above.
+  @image_src_regex ~r/<img\b[^>]*\bsrc=["']([^"']+)["']/i
+  @image_href_regex ~r/<a\b[^>]*\bhref=["']([^"']+)["']/i
+
+  @doc """
+  Pulls the image URL back out of the embed RVRB substitutes for an image
+  link in chat, so the `\\editbot` image fields are set to a URL rather than
+  to a chunk of markup. Values that aren't an embed (a relative path, a URL
+  RVRB didn't rewrite) are returned unchanged.
+  """
+  def extract_image_url(value) when is_binary(value) do
+    with [_match, url] <-
+           Regex.run(@image_src_regex, value) || Regex.run(@image_href_regex, value),
+         url when url != "" <- url |> Html.unescape() |> String.trim() do
+      url
+    else
+      _ -> value
     end
   end
 
@@ -606,13 +641,13 @@ defmodule Rvrb.Commands do
     name = String.downcase(field)
 
     case List.keyfind(@bot_fields, name, 0) do
-      {^name, param} -> {:ok, param}
+      {^name, param, kind} -> {:ok, param, kind}
       nil -> :error
     end
   end
 
   defp bot_field_list do
-    @bot_fields |> Enum.map(fn {name, _param} -> name end) |> Enum.join(", ")
+    @bot_fields |> Enum.map(fn {name, _param, _kind} -> name end) |> Enum.join(", ")
   end
 
   defp render_stats(nil, not_found_message, state) do

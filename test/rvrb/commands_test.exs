@@ -3,6 +3,12 @@ defmodule Rvrb.CommandsTest do
 
   alias Rvrb.Commands
 
+  # The markup RVRB substitutes for an image link typed into chat.
+  defp image_embed(url) do
+    "<div class=\"image-container\"><a href=\"#{url}\" target=\"_blank\"/>" <>
+      "<img src=\"#{url}\"/></a></div>"
+  end
+
   describe "parse/1" do
     test "returns :error for messages without the command prefix" do
       assert Commands.parse("hey everyone") == :error
@@ -103,6 +109,51 @@ defmodule Rvrb.CommandsTest do
     test "rejects a known field with no value" do
       assert {:error, message} = Commands.parse_editbot("bio")
       assert message =~ "needs a value"
+    end
+
+    test "unwraps the image embed RVRB makes of an image link" do
+      url = "https://www.gstatic.com/android/keyboard/emojikitchen/u1f438_u1f608.png"
+      embed = image_embed(url)
+
+      assert Commands.parse_editbot("image #{embed}") == {:ok, :image, url}
+      assert Commands.parse_editbot("djimage #{embed}") == {:ok, :djImage, url}
+      assert Commands.parse_editbot("thumbsup #{embed}") == {:ok, :thumbsUpImage, url}
+      assert Commands.parse_editbot("thumbsdown #{embed}") == {:ok, :thumbsDownImage, url}
+    end
+
+    test "leaves the text fields alone, embed or not" do
+      embed = image_embed("https://example.com/cat.png")
+
+      assert Commands.parse_editbot("bio #{embed}") == {:ok, :bio, embed}
+    end
+  end
+
+  describe "extract_image_url/1" do
+    test "prefers the embedded <img> source" do
+      html =
+        "<div class=\"image-container\"><a href=\"https://example.com/link\" target=\"_blank\"/>" <>
+          "<img src=\"https://example.com/image.png\"/></a></div>"
+
+      assert Commands.extract_image_url(html) == "https://example.com/image.png"
+    end
+
+    test "falls back to the wrapping link when there's no <img>" do
+      html = "<a href=\"https://example.com/image.png\" target=\"_blank\"></a>"
+
+      assert Commands.extract_image_url(html) == "https://example.com/image.png"
+    end
+
+    test "unescapes entities in the extracted URL" do
+      html = "<img src=\"https://example.com/image.png?w=1&amp;h=2\"/>"
+
+      assert Commands.extract_image_url(html) == "https://example.com/image.png?w=1&h=2"
+    end
+
+    test "returns a plain URL or path unchanged" do
+      assert Commands.extract_image_url("https://example.com/image.png") ==
+               "https://example.com/image.png"
+
+      assert Commands.extract_image_url("/static/dj.webp") == "/static/dj.webp"
     end
   end
 
