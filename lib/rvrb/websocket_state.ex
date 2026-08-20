@@ -17,8 +17,11 @@ defmodule Rvrb.WebSocket.State do
 
   @type t :: %__MODULE__{
           djs: [String.t()],
+          bots: MapSet.t(String.t()),
           doped: boolean(),
           starred: boolean(),
+          dopes: [String.t()],
+          stars: [String.t()],
           current_track: map(),
           current_track_started_at: integer() | nil,
           queue: [map()],
@@ -26,8 +29,17 @@ defmodule Rvrb.WebSocket.State do
         }
 
   defstruct djs: [],
+            # RVRB ids of every bot seen in the room, accumulated from
+            # `updateChannelUsers`. Bots in the DJ queue are left out of the
+            # auto-vote's unanimity check - see `Rvrb.AutoVote`.
+            bots: MapSet.new(),
             doped: false,
             starred: false,
+            # Who has doped/starred the current track, as of the last meter.
+            # Kept so a DJ joining or leaving can be re-checked against the
+            # room's votes without waiting for the next meter to arrive.
+            dopes: [],
+            stars: [],
             # The raw RVRB track that's playing right now, `%{}` until the
             # first `playChannelTrack` lands.
             current_track: %{},
