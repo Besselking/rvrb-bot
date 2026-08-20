@@ -1,4 +1,5 @@
 defmodule Rvrb.WebSocket do
+  alias Rvrb.AutoVote
   alias Rvrb.Commands
   alias Rvrb.PlayWriter
   alias Rvrb.WebSocket.State
@@ -29,23 +30,24 @@ defmodule Rvrb.WebSocket do
     })
   end
 
-  def dope() do
-    send_message(%{
-      jsonrpc: "2.0",
-      method: "vote",
-      params: %{
-        dope: true
-      }
-    })
-  end
+  def dope(), do: cast_vote(%{dope: true})
 
-  def star() do
-    send_message(%{
+  @doc "Takes back a dope the bot cast, leaving every other vote alone."
+  def undope(), do: cast_vote(%{dope: false})
+
+  def star(), do: cast_vote(%{star: true})
+
+  @doc "Takes back a star the bot cast, leaving every other vote alone."
+  def unstar(), do: cast_vote(%{star: false})
+
+  # Through `Rvrb.Socket` rather than `send_message/1` directly so a test
+  # can stub the socket and assert on what the auto-vote decided, the same
+  # way the command handlers do.
+  defp cast_vote(params) do
+    Rvrb.Socket.impl().send_message(%{
       jsonrpc: "2.0",
       method: "vote",
-      params: %{
-        star: true
-      }
+      params: params
     })
   end
 
@@ -187,9 +189,13 @@ defmodule Rvrb.WebSocket do
   def handle_message(%{"method" => "updateChannelUsers", "params" => params}, state) do
     Logger.debug("updateChannelUsers! #{params["type"]}")
 
-    Rvrb.User.update_users(params["users"])
+    users = params["users"] || []
 
-    {:ok, state}
+    Rvrb.User.update_users(users)
+
+    # Accumulated rather than replaced: a push carries whoever it carries,
+    # and a bot doesn't stop being one by not being mentioned again.
+    {:ok, %{state | bots: MapSet.union(state.bots, AutoVote.bot_ids(users))}}
   end
 
   # RVRB asks for a track when it's the bot's turn to DJ. With an empty
@@ -232,35 +238,16 @@ defmodule Rvrb.WebSocket do
   def handle_message(%{"method" => "updateChannelMeter", "params" => params}, state) do
     Logger.debug("updateChannelMeter!")
     voting = params["voting"]
-    dopes = for {userid, vote} <- voting, vote["dope"] > 0, do: userid
-    stars = for {userid, vote} <- voting, vote["star"] > 0, do: userid
 
     PlayWriter.sync_votes(voting)
 
-    # Everyone in the queue except whoever is playing right now. A meter
-    # can arrive with no DJs at all (the last one stepped down as the
-    # update went out), which is a no-op for the auto-vote below.
-    djs =
-      case state.djs do
-        [_current_dj | rest] -> rest
-        [] -> []
-      end
+    state = %{
+      state
+      | dopes: AutoVote.voters(voting, "dope"),
+        stars: AutoVote.voters(voting, "star")
+    }
 
-    doped =
-      if not Enum.empty?(djs) and Enum.empty?(djs -- dopes) and not state.doped do
-        dope()
-        true
-      else
-        state.doped
-      end
-
-    starred =
-      if not Enum.empty?(djs) and Enum.empty?(djs -- stars) and not state.starred do
-        star()
-        true
-      else
-        state.starred
-      end
+    state = refresh_auto_votes(state)
 
     # A meter arrives for every vote anyone casts, so the per-voter dump goes
     # behind a lazy `Logger.debug/1`: with debug off, neither the user lookup
@@ -286,7 +273,7 @@ defmodule Rvrb.WebSocket do
       end)
     end)
 
-    {:ok, %{state | doped: doped, starred: starred}}
+    {:ok, state}
   end
 
   def handle_message(
@@ -308,6 +295,8 @@ defmodule Rvrb.WebSocket do
        state
        | doped: false,
          starred: false,
+         dopes: [],
+         stars: [],
          current_track: track,
          current_track_started_at: System.monotonic_time(:millisecond)
      }}
@@ -358,6 +347,19 @@ defmodule Rvrb.WebSocket do
 
     state = %{state | djs: djs}
 
+    # A DJ leaving can complete a unanimous vote, and one joining can break
+    # it, so the queue that just changed gets re-checked against the votes
+    # from the last meter - but only while the same DJ is still playing.
+    # A different head means the decks rotated, and the votes we're holding
+    # belong to the track that just ended; `playChannelTrack` clears them
+    # too, this just doesn't depend on which of the two lands first.
+    state =
+      if List.first(current_djs) == List.first(djs) do
+        refresh_auto_votes(state)
+      else
+        %{state | dopes: [], stars: []}
+      end
+
     {:ok, state}
   end
 
@@ -370,6 +372,39 @@ defmodule Rvrb.WebSocket do
     Logger.debug("Received state: #{inspect(unknown_message)}")
     {:ok, state}
   end
+
+  # Casts or retracts the automatic dope/star to match the room as we
+  # currently know it: the votes from the last meter, against the DJs whose
+  # votes count right now. Safe to call on any event that moves either.
+  defp refresh_auto_votes(state) do
+    djs = AutoVote.deciding_djs(state.djs, state.bots)
+
+    doped =
+      state.doped
+      |> AutoVote.decide(state.dopes, djs)
+      |> apply_vote("dope", state.doped, &dope/0, &undope/0)
+
+    starred =
+      state.starred
+      |> AutoVote.decide(state.stars, djs)
+      |> apply_vote("star", state.starred, &star/0, &unstar/0)
+
+    %{state | doped: doped, starred: starred}
+  end
+
+  defp apply_vote(:vote, name, _voted?, cast, _retract) do
+    Logger.info("auto-#{name}: the DJ queue is unanimous")
+    cast.()
+    true
+  end
+
+  defp apply_vote(:retract, name, _voted?, _cast, retract) do
+    Logger.info("un-#{name}: the DJ queue no longer agrees")
+    retract.()
+    false
+  end
+
+  defp apply_vote(:hold, _name, voted?, _cast, _retract), do: voted?
 
   def handle_in({:text, data}, state) do
     Logger.debug("IN: #{data}")

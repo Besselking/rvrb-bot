@@ -13,6 +13,37 @@ defmodule Rvrb.WebSocketTest do
   alias Rvrb.WebSocket
   alias Rvrb.WebSocket.State
 
+  defmodule SocketStub do
+    @behaviour Rvrb.Socket
+
+    @impl true
+    def chat(message), do: send(self(), {:chat, message})
+
+    @impl true
+    def send_message(message), do: send(self(), {:send_message, message})
+
+    @impl true
+    def send_queue(queue), do: send(self(), {:send_queue, queue})
+
+    @impl true
+    def edit_user(params), do: send(self(), {:edit_user, params})
+  end
+
+  setup do
+    # The auto-vote talks to the socket through `Rvrb.Socket`, so here it
+    # talks to a stub that forwards to the test process instead of a live
+    # websocket.
+    previous = Application.get_env(:rvrb, :socket)
+    Application.put_env(:rvrb, :socket, SocketStub)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:rvrb, :socket)
+        module -> Application.put_env(:rvrb, :socket, module)
+      end
+    end)
+  end
+
   describe "nextChannelTrack" do
     test "answers the RPC with an error when the queue is empty" do
       state = %State{queue: []}
@@ -60,6 +91,177 @@ defmodule Rvrb.WebSocketTest do
                  },
                  state
                )
+
+      refute_received {:send_message, _}
+    end
+
+    # One queued DJ agreeing with themselves isn't the room's opinion.
+    test "doesn't auto-vote on a single queued DJ's vote" do
+      state = %State{djs: ["dj-a", "dj-b"]}
+
+      assert {:ok, %{doped: false, starred: false}} =
+               handle(meter(%{"dj-b" => %{"dope" => 1, "star" => 1}}), state)
+
+      refute_received {:send_message, _}
+    end
+
+    test "auto-dopes and stars once two queued DJs agree" do
+      state = %State{djs: ["dj-a", "dj-b", "dj-c"]}
+
+      assert {:ok, %{doped: true, starred: true, dopes: dopes}} =
+               handle(
+                 meter(%{
+                   "dj-b" => %{"dope" => 1, "star" => 1},
+                   "dj-c" => %{"dope" => 1, "star" => 1}
+                 }),
+                 state
+               )
+
+      assert Enum.sort(dopes) == ["dj-b", "dj-c"]
+      assert_received {:send_message, %{method: "vote", params: %{dope: true}}}
+      assert_received {:send_message, %{method: "vote", params: %{star: true}}}
+    end
+
+    test "only dopes for a queue that agrees on the dope alone" do
+      state = %State{djs: ["dj-a", "dj-b", "dj-c"]}
+
+      assert {:ok, %{doped: true, starred: false}} =
+               handle(
+                 meter(%{
+                   "dj-b" => %{"dope" => 1, "star" => 1},
+                   "dj-c" => %{"dope" => 1, "star" => 0}
+                 }),
+                 state
+               )
+
+      assert_received {:send_message, %{method: "vote", params: %{dope: true}}}
+      refute_received {:send_message, %{method: "vote", params: %{star: true}}}
+    end
+
+    test "takes the dope back when a queued DJ withdraws theirs" do
+      state = %State{djs: ["dj-a", "dj-b", "dj-c"], doped: true, dopes: ["dj-b", "dj-c"]}
+
+      assert {:ok, %{doped: false}} =
+               handle(meter(%{"dj-b" => %{"dope" => 1, "star" => 0}}), state)
+
+      assert_received {:send_message, %{method: "vote", params: %{dope: false}}}
+    end
+
+    test "leaves a bot in the queue out of the count" do
+      state = %State{djs: ["dj-a", "bot-self", "dj-b"], bots: MapSet.new(["bot-self"])}
+
+      assert {:ok, %{doped: false}} =
+               handle(meter(%{"dj-b" => %{"dope" => 1, "star" => 0}}), state)
+
+      # Only one DJ's vote actually counts here, so the bot holds - but it
+      # holds because of the floor, not because it is waiting on itself.
+      refute_received {:send_message, _}
+    end
+  end
+
+  describe "updateChannelUsers" do
+    test "remembers which users RVRB marks as bots" do
+      users = [
+        %{"_id" => "user-1", "userName" => "u1", "createdDate" => "2024-01-01T00:00:00.000Z"},
+        %{
+          "_id" => "bot-1",
+          "userName" => "bot_1",
+          "type" => "bot",
+          "createdDate" => "2024-01-01T00:00:00.000Z"
+        }
+      ]
+
+      assert {:ok, state} =
+               handle(
+                 %{"method" => "updateChannelUsers", "params" => %{"users" => users}},
+                 %State{}
+               )
+
+      assert state.bots == MapSet.new(["bot-1"])
+    end
+  end
+
+  describe "updateChannelDjs" do
+    setup do
+      for id <- ~w[dj-a dj-b dj-c dj-d bot-self] do
+        user_fixture(%{
+          rvrb_id: id,
+          last_djed: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+        })
+      end
+
+      :ok
+    end
+
+    test "auto-dopes when the DJ who hadn't voted leaves the queue" do
+      state = %State{djs: ["dj-a", "dj-b", "dj-c", "dj-d"], dopes: ["dj-b", "dj-c"]}
+
+      assert {:ok, %{doped: true}} = handle(djs(["dj-a", "dj-b", "dj-c"]), state)
+
+      assert_received {:send_message, %{method: "vote", params: %{dope: true}}}
+    end
+
+    test "takes the vote back when a DJ who hasn't voted joins" do
+      state = %State{
+        djs: ["dj-a", "dj-b", "dj-c"],
+        dopes: ["dj-b", "dj-c"],
+        stars: ["dj-b", "dj-c"],
+        doped: true,
+        starred: true
+      }
+
+      assert {:ok, %{doped: false, starred: false}} =
+               handle(djs(["dj-a", "dj-b", "dj-c", "dj-d"]), state)
+
+      assert_received {:send_message, %{method: "vote", params: %{dope: false}}}
+      assert_received {:send_message, %{method: "vote", params: %{star: false}}}
+    end
+
+    test "keeps the vote when the queue shrinks to one agreeing DJ" do
+      state = %State{djs: ["dj-a", "dj-b", "dj-c"], dopes: ["dj-b", "dj-c"], doped: true}
+
+      assert {:ok, %{doped: true}} = handle(djs(["dj-a", "dj-b"]), state)
+
+      refute_received {:send_message, %{method: "vote"}}
+    end
+
+    test "keeps the vote when the queue empties out behind the current DJ" do
+      state = %State{djs: ["dj-a", "dj-b", "dj-c"], dopes: ["dj-b", "dj-c"], doped: true}
+
+      assert {:ok, %{doped: true}} = handle(djs(["dj-a"]), state)
+
+      refute_received {:send_message, %{method: "vote"}}
+    end
+
+    test "doesn't start a vote for the single DJ a leaver left behind" do
+      state = %State{djs: ["dj-a", "dj-b", "dj-c"], dopes: ["dj-b"]}
+
+      assert {:ok, %{doped: false}} = handle(djs(["dj-a", "dj-b"]), state)
+
+      refute_received {:send_message, _}
+    end
+
+    test "doesn't wait on a bot in the queue to make it unanimous" do
+      state = %State{
+        djs: ["dj-a", "dj-b", "dj-c"],
+        bots: MapSet.new(["bot-self"]),
+        dopes: ["dj-b", "dj-c"]
+      }
+
+      assert {:ok, %{doped: true}} = handle(djs(["dj-a", "dj-b", "bot-self", "dj-c"]), state)
+
+      assert_received {:send_message, %{method: "vote", params: %{dope: true}}}
+    end
+
+    # The votes we hold belong to the track that just ended, so a rotation
+    # must not turn them into a vote on the next one.
+    test "drops the votes it was holding when the decks rotate" do
+      state = %State{djs: ["dj-a", "dj-b", "dj-c"], dopes: ["dj-b", "dj-c"]}
+
+      assert {:ok, %{doped: false, dopes: [], stars: []}} =
+               handle(djs(["dj-b", "dj-c", "dj-a"]), state)
+
+      refute_received {:send_message, _}
     end
   end
 
@@ -92,6 +294,14 @@ defmodule Rvrb.WebSocketTest do
       assert new_state.current_track == track
       assert is_integer(new_state.current_track_started_at)
     end
+  end
+
+  defp meter(voting) do
+    %{"method" => "updateChannelMeter", "params" => %{"voting" => voting}}
+  end
+
+  defp djs(djs) do
+    %{"method" => "updateChannelDjs", "params" => %{"type" => "update", "djs" => djs}}
   end
 
   defp handle(message, state) do
