@@ -21,6 +21,12 @@ defmodule Rvrb.Play do
   # The vote types that count toward a score - the rest (boofstar, nope) don't.
   @scoring_vote_types ~w[dope star]
 
+  # How many of a DJ's most recent plays `average_durations/1` averages
+  # over. Long enough to smooth out the odd interlude or 10 minute epic,
+  # short enough that a DJ who's switched vibe this session is judged on
+  # what they're playing now rather than on everything they've ever played.
+  @recent_play_limit 25
+
   schema "plays" do
     belongs_to(:user, Rvrb.User)
     field(:spotify_track_id, :string)
@@ -93,15 +99,35 @@ defmodule Rvrb.Play do
   `user_ids`, as `%{user_id => %{avg_ms: integer, play_count: integer}}`.
   Backs the `\\rotation` estimate.
 
+  Only each user's most recent #{@recent_play_limit} timed plays count
+  toward their average: DJs drift between genres, and a lifetime average
+  drags a DJ who's currently deep in 8 minute techno back toward the 3
+  minute pop they played months ago. `play_count` is how many plays the
+  average actually covers, so it tops out at #{@recent_play_limit}.
+
   Users with no timed plays are simply absent from the result rather than
   present with a nil average, so the caller can tell "never played" apart
   from "played, but we don't know how long for" and pick its own fallback.
   """
   def average_durations(user_ids) do
-    from(p in Rvrb.Play,
-      where: p.user_id in ^user_ids and not is_nil(p.duration_ms),
+    # Rank each user's timed plays newest first, then average the ones
+    # inside the window. Doing it in one query - rather than a query per
+    # DJ - keeps the whole queue to a single round trip.
+    recent_plays =
+      from(p in Rvrb.Play,
+        where: p.user_id in ^user_ids and not is_nil(p.duration_ms),
+        windows: [by_user: [partition_by: p.user_id, order_by: [desc: p.played_at, desc: p.id]]],
+        select: %{
+          user_id: p.user_id,
+          duration_ms: p.duration_ms,
+          recency: over(row_number(), :by_user)
+        }
+      )
+
+    from(p in subquery(recent_plays),
+      where: p.recency <= ^@recent_play_limit,
       group_by: p.user_id,
-      select: {p.user_id, avg(p.duration_ms), count(p.id)}
+      select: {p.user_id, avg(p.duration_ms), count(p.user_id)}
     )
     |> Rvrb.Repo.all()
     |> Map.new(fn {user_id, avg_ms, play_count} ->

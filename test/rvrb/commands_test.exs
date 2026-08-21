@@ -321,7 +321,7 @@ defmodule Rvrb.CommandsTest do
     } do
       html = Commands.rotation_table(estimate, dj_map, "dj-b")
 
-      assert html =~ "<td>3m 0s (over 4 plays)</td>"
+      assert html =~ "<td>3m 0s (over last 4 plays)</td>"
       assert html =~ "<td>5m 0s (guess)</td>"
     end
 

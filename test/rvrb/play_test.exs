@@ -349,6 +349,62 @@ defmodule Rvrb.PlayTest do
       assert avg_ms in [100_000, 100_001]
     end
 
+    test "averages only the 25 most recent timed plays" do
+      user = user_fixture()
+
+      # A genre the DJ has moved on from, and plenty of it.
+      for n <- 1..10 do
+        play_fixture(user, %{
+          duration_ms: 600_000,
+          played_at: minutes_in(~N[2026-01-01 12:00:00], n)
+        })
+      end
+
+      # What they're playing now - exactly the window's worth.
+      for n <- 1..25 do
+        play_fixture(user, %{
+          duration_ms: 200_000,
+          played_at: minutes_in(~N[2026-02-01 12:00:00], n)
+        })
+      end
+
+      assert Play.average_durations([user.id])[user.id] == %{avg_ms: 200_000, play_count: 25}
+    end
+
+    test "keeps the whole history when there's less than 25 plays of it" do
+      user = user_fixture()
+
+      for _ <- 1..24, do: play_fixture(user, %{duration_ms: 200_000})
+      play_fixture(user, %{duration_ms: 400_000})
+
+      assert Play.average_durations([user.id])[user.id] == %{avg_ms: 208_000, play_count: 25}
+    end
+
+    test "windows each user separately" do
+      one = user_fixture()
+      two = user_fixture()
+
+      for _ <- 1..26, do: play_fixture(one, %{duration_ms: 200_000})
+      play_fixture(two, %{duration_ms: 300_000})
+
+      result = Play.average_durations([one.id, two.id])
+
+      assert result[one.id] == %{avg_ms: 200_000, play_count: 25}
+      assert result[two.id] == %{avg_ms: 300_000, play_count: 1}
+    end
+
+    test "breaks a played_at tie on insertion order, newest first" do
+      user = user_fixture()
+      played_at = ~N[2026-02-01 12:00:00]
+
+      # The same timestamp on all 26, so only insertion order says which
+      # one falls out of the window - and it's the one recorded first.
+      play_fixture(user, %{duration_ms: 600_000, played_at: played_at})
+      for _ <- 1..25, do: play_fixture(user, %{duration_ms: 200_000, played_at: played_at})
+
+      assert Play.average_durations([user.id])[user.id] == %{avg_ms: 200_000, play_count: 25}
+    end
+
     test "returns an empty map for no user ids" do
       assert Play.average_durations([]) == %{}
     end
@@ -369,4 +425,6 @@ defmodule Rvrb.PlayTest do
       assert Play.average_duration() == 150_000
     end
   end
+
+  defp minutes_in(naive, minutes), do: NaiveDateTime.add(naive, minutes * 60, :second)
 end
