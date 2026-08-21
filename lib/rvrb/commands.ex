@@ -340,7 +340,7 @@ defmodule Rvrb.Commands do
   end
 
   defp track_length_label(%{duration_ms: duration_ms, play_count: play_count}) do
-    "#{Rotation.format_ms(duration_ms)} (over #{pluralize(play_count, "play")})"
+    "#{Rotation.format_ms(duration_ms)} (over last #{pluralize(play_count, "play")})"
   end
 
   defp your_turn_line(estimate, user_id) do
