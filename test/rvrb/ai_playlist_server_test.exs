@@ -3,6 +3,8 @@ defmodule Rvrb.AiPlaylistServerTest do
 
   import ExUnit.CaptureLog
 
+  require Logger
+
   alias Rvrb.AiPlaylistServer
 
   @slop "1VX1plT2A6rwob0SwuEkvH"
@@ -15,7 +17,9 @@ defmodule Rvrb.AiPlaylistServerTest do
     def playlist_artists(playlist_id) do
       %{owner: owner, playlists: playlists} = config()
       send(owner, {:playlist_artists, playlist_id})
-      get_in(playlists, [playlist_id, :artists]) || []
+
+      {get_in(playlists, [playlist_id, :status]) || :ok,
+       get_in(playlists, [playlist_id, :artists]) || []}
     end
 
     def playlist_name(playlist_id) do
@@ -123,13 +127,17 @@ defmodule Rvrb.AiPlaylistServerTest do
 
   describe "refreshing" do
     test "skips the name request for a playlist whose tracks didn't come back" do
-      server =
-        start_stub(%{
-          @slop => %{name: "SLOP", artists: []},
-          @suno => %{name: "Suno Generated Music", artists: [artist("a1")]}
-        })
+      # One list failing also makes the refresh a partial one, hence the
+      # captured warning.
+      capture_log(fn ->
+        server =
+          start_stub(%{
+            @slop => %{name: "SLOP", artists: []},
+            @suno => %{name: "Suno Generated Music", artists: [artist("a1")]}
+          })
 
-      await_refresh(server)
+        await_refresh(server)
+      end)
 
       assert_received {:playlist_artists, @slop}
       refute_received {:playlist_name, @slop}
@@ -163,6 +171,77 @@ defmodule Rvrb.AiPlaylistServerTest do
         end)
 
       assert log =~ "refresh failed"
+    end
+  end
+
+  describe "a partially fetched refresh" do
+    test "is adopted when there's no index yet, since some of the list beats none" do
+      log =
+        capture_log(fn ->
+          server =
+            start_stub(%{
+              @slop => %{name: "SLOP", artists: [artist("a1")], status: :partial},
+              @suno => %{name: "Suno Generated Music", artists: [artist("a2")]}
+            })
+
+          await_refresh(server)
+
+          assert {:listed, _playlists} = AiPlaylistServer.lookup(server, "a1")
+          # It counts as a failure, so the next try comes round sooner than
+          # the daily refresh would.
+          assert :sys.get_state(server).failures == 1
+        end)
+
+      assert log =~ "incomplete"
+    end
+
+    test "doesn't replace an index it already has with a shorter one" do
+      server =
+        start_stub(%{
+          @slop => %{name: "SLOP", artists: [artist("a1"), artist("a2")]},
+          @suno => %{name: "Suno Generated Music", artists: [artist("a3")]}
+        })
+
+      await_refresh(server)
+      assert {:listed, _playlists} = AiPlaylistServer.lookup(server, "a2")
+
+      # Spotify throttles the next day's refresh halfway through it.
+      capture_log(fn ->
+        put_playlists(%{
+          @slop => %{name: "SLOP", artists: [artist("a1")], status: :partial},
+          @suno => %{name: "Suno Generated Music", artists: []}
+        })
+
+        send(server, :refresh)
+        await_refresh(server)
+      end)
+
+      assert {:listed, _playlists} = AiPlaylistServer.lookup(server, "a2")
+    end
+
+    test "a playlist that came back empty makes the whole refresh partial" do
+      log =
+        capture_log(fn ->
+          server =
+            start_stub(%{
+              @slop => %{name: "SLOP", artists: [artist("a1")]},
+              @suno => %{name: "Suno Generated Music", artists: []}
+            })
+
+          await_refresh(server)
+
+          assert {:listed, _playlists} = AiPlaylistServer.lookup(server, "a1")
+          assert :sys.get_state(server).failures == 1
+        end)
+
+      assert log =~ "incomplete"
+    end
+
+    test "a refresh with every page intact is not treated as a failure" do
+      server = start_stub(%{@slop => %{name: "SLOP", artists: [artist("a1")]}})
+      await_refresh(server)
+
+      assert :sys.get_state(server).failures == 0
     end
   end
 
@@ -218,5 +297,10 @@ defmodule Rvrb.AiPlaylistServerTest do
       :ok -> :ok
       _timeout -> flunk("the refresh never finished")
     end
+
+    # Logger hands off asynchronously, so whatever the refresh logged on its
+    # way out has to be flushed before a `capture_log/1` around this call
+    # can see it - or fail to suppress it.
+    Logger.flush()
   end
 end

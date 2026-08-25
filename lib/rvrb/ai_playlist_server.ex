@@ -13,7 +13,11 @@ defmodule Rvrb.AiPlaylistServer do
   These lists are maintained by hand and move slowly, so a day-old copy is
   as good as a fresh one. A refresh that fails leaves the previous copy in
   place and retries sooner: a stale index still answers almost every
-  lookup, and it is only ever evidence on top of the heuristic.
+  lookup, and it is only ever evidence on top of the heuristic. The same
+  goes for a refresh that only half-succeeded - Spotify rate-limits a
+  dozen back-to-back requests readily enough that this is worth
+  distinguishing, or one throttled minute would quietly cost a whole
+  playlist for the next 24 hours.
 
   Artists are matched by Spotify id, never by name. The same AI project
   often has several Spotify profiles and name matching would catch those -
@@ -127,6 +131,18 @@ defmodule Rvrb.AiPlaylistServer do
   end
 
   @impl true
+  def handle_info({:refreshed, pid, {:partial, index}}, %{refreshing: pid} = state) do
+    Logger.warning("AI playlist fetch was incomplete: #{map_size(index)} artists")
+
+    # A short index is better than none, but worse than yesterday's whole
+    # one - so this is only adopted when there's nothing to lose by it.
+    # Either way the retry comes sooner than the daily refresh would.
+    state = if state.loaded?, do: state, else: %{state | index: index, loaded?: true}
+
+    {:noreply, failed(state)}
+  end
+
+  @impl true
   def handle_info({:refreshed, pid, :error}, %{refreshing: pid} = state) do
     Logger.warning("AI playlist refresh came back empty, keeping the previous index")
     {:noreply, failed(state)}
@@ -196,30 +212,36 @@ defmodule Rvrb.AiPlaylistServer do
   end
 
   defp fetch(spotify, playlist_ids) do
-    playlist_ids
-    |> Enum.map(&fetch_playlist(spotify, &1))
-    |> Enum.reject(&(&1.artist_ids == []))
-    |> case do
+    playlists = Enum.map(playlist_ids, &fetch_playlist(spotify, &1))
+
+    case Enum.reject(playlists, &(&1.artist_ids == [])) do
       # Each of these lists runs to hundreds of tracks, so all of them
       # coming back empty means the fetch failed - not that somebody
       # emptied every one of them overnight.
       [] -> :error
-      playlists -> {:ok, index(playlists)}
+      usable -> {status(playlists), index(usable)}
     end
   end
 
+  defp status(playlists) do
+    if Enum.all?(playlists, & &1.complete?), do: :ok, else: :partial
+  end
+
   # The name is only worth a request once the tracks have come back: an
-  # empty playlist is a failed fetch, and there's nothing to label.
+  # empty playlist is a failed fetch, and there's nothing to label. An
+  # empty read counts as incomplete however Spotify framed it - these
+  # lists are never actually empty.
   defp fetch_playlist(spotify, playlist_id) do
     case spotify.playlist_artists(playlist_id) do
-      [] ->
-        %{id: playlist_id, name: nil, artist_ids: []}
+      {_status, []} ->
+        %{id: playlist_id, name: nil, artist_ids: [], complete?: false}
 
-      artists ->
+      {status, artists} ->
         %{
           id: playlist_id,
           name: spotify.playlist_name(playlist_id),
-          artist_ids: artists |> Enum.map(& &1["id"]) |> Enum.filter(&is_binary/1)
+          artist_ids: artists |> Enum.map(& &1["id"]) |> Enum.filter(&is_binary/1),
+          complete?: status == :ok
         }
     end
   end
