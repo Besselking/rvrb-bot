@@ -12,11 +12,22 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
-        beamPackages = pkgs.beam.packages.erlang;
-        # mix.exs requires elixir ~> 1.20; the plain `elixir` alias in
-        # nixpkgs can lag behind and point at an older default (e.g. 1.18),
-        # so pin the versioned attribute explicitly.
-        elixir = beamPackages.elixir_1_20;
+
+        # mix.exs requires elixir ~> 1.20, and this set's plain `elixir`
+        # alias lags behind that (1.18 at the time of writing), so the
+        # version has to be picked explicitly. It gets picked by scoping
+        # the whole package set rather than by passing `elixir` to each
+        # builder: nixpkgs stopped accepting that argument, and now takes
+        # the version from whichever set the builder was called from.
+        #
+        # Scoping is what the old argument should have been anyway. `hex`
+        # is built inside this set too, so it now follows elixir here -
+        # passing the argument left it built against the default elixir
+        # while the deps were fetched with 1.20.
+        beamPackages = pkgs.beam.packages.erlang.overrideScope (
+          _final: prev: { elixir = prev.elixir_1_20; }
+        );
+        elixir = beamPackages.elixir;
 
         version = "0.1.0";
 
@@ -25,7 +36,7 @@
         # `src` and needs no separate fetch).
         mixFodDeps = beamPackages.fetchMixDeps {
           pname = "rvrb-deps";
-          inherit version elixir;
+          inherit version;
           src = ./.;
           hash = "sha256-2hH62w1NeqRM3dBQvi+sNwvh/+mWJIE23hr9oAJOSkU=";
         };
@@ -38,7 +49,7 @@
 
         packages.default = beamPackages.mixRelease {
           pname = "rvrb";
-          inherit version mixFodDeps elixir;
+          inherit version mixFodDeps;
           src = ./.;
         };
 
