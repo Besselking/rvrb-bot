@@ -11,7 +11,10 @@ defmodule Rvrb.SpotifyServer do
 
   @doc "The `Agent` is started with no credentials and no expiry yet."
   def start_link do
-    Agent.start_link(fn -> %{credentials: %Spotify.Credentials{}, expires_at: nil} end,
+    Agent.start_link(
+      fn ->
+        %{credentials: %Spotify.Credentials{}, expires_at: nil, related_artists?: true}
+      end,
       name: CredStore
     )
   end
@@ -20,7 +23,7 @@ defmodule Rvrb.SpotifyServer do
 
   defp put_creds(creds) do
     expires_at = System.monotonic_time(:second) + @token_ttl_seconds
-    Agent.update(CredStore, fn _ -> %{credentials: creds, expires_at: expires_at} end)
+    Agent.update(CredStore, &%{&1 | credentials: creds, expires_at: expires_at})
   end
 
   defp fresh?(%{expires_at: nil}), do: false
@@ -103,21 +106,137 @@ defmodule Rvrb.SpotifyServer do
         "?" <>
         URI.encode_query(limit: @artist_albums_page_size, include_groups: "album,single")
 
-    fetch_albums(credentials, url, @artist_albums_max_pages)
+    fetch_pages(credentials, url, @artist_albums_max_pages, &items/1)
   end
 
-  defp fetch_albums(_credentials, nil, _pages_left), do: []
-  defp fetch_albums(_credentials, _url, 0), do: []
+  # Spotify caps a playlist page at 100 items. These lists run to a few
+  # hundred tracks each today, so the cap is headroom rather than a limit
+  # anyone is expected to hit.
+  @playlist_page_size 100
+  @playlist_max_pages 20
 
-  defp fetch_albums(credentials, url, pages_left) do
-    case Spotify.Client.get(credentials, url) do
+  @doc """
+  Every artist credited on a public playlist's tracks, as plain maps with
+  string keys (`artist["id"]`, `artist["name"]`), deduplicated by id and
+  covering up to #{@playlist_max_pages} pages.
+
+  Returns `[]` when Spotify won't answer - callers can't tell a failure
+  from a genuinely empty playlist, and treat both as "no list".
+
+  Like `artist_albums/1` this goes around `Spotify.Playlist`, for two
+  reasons: its helpers still build the legacy
+  `/users/:user_id/playlists/:id` URLs (the current endpoint needs no user
+  id), and `fields` trims the response from full track objects down to the
+  handful of artist keys actually wanted here.
+  """
+  def playlist_artists(id) do
+    credentials = get_auth()
+
+    url =
+      "https://api.spotify.com/v1/playlists/#{id}/tracks?" <>
+        URI.encode_query(
+          limit: @playlist_page_size,
+          fields: "next,items(track(artists(id,name)))"
+        )
+
+    credentials
+    |> fetch_pages(url, @playlist_max_pages, &page_artists/1)
+    |> Enum.uniq_by(& &1["id"])
+  end
+
+  @doc """
+  A public playlist's display name, or `nil` if Spotify won't say.
+
+  Read on every refresh rather than hardcoded alongside the ids, so that
+  renaming one of the lists doesn't need a release.
+  """
+  def playlist_name(id) do
+    credentials = get_auth()
+
+    case get_json(credentials, "https://api.spotify.com/v1/playlists/#{id}?fields=name") do
+      {:ok, %{"name" => name}} when is_binary(name) -> name
+      _error -> nil
+    end
+  end
+
+  @doc """
+  Spotify's suggested related artists for `id`, as plain maps with string
+  keys, or `[]` when Spotify won't say.
+
+  Spotify deprecated this endpoint in November 2024: an app that didn't
+  already have access to it gets a 403 no matter what it asks for. So this
+  is a bonus signal where it works rather than something to lean on, and a
+  403 is remembered for the life of the process - there's no point paying
+  for a round trip that can only fail again.
+  """
+  def related_artists(id) do
+    if Agent.get(CredStore, & &1.related_artists?) do
+      fetch_related_artists(id)
+    else
+      []
+    end
+  end
+
+  defp fetch_related_artists(id) do
+    credentials = get_auth()
+
+    case Spotify.Client.get(
+           credentials,
+           "https://api.spotify.com/v1/artists/#{id}/related-artists"
+         ) do
       {:ok, %HTTPoison.Response{status_code: code, body: body}} when code in 200..299 ->
-        page = JSON.decode!(body)
-        items = Map.get(page, "items", [])
-        items ++ fetch_albums(credentials, page["next"], pages_left - 1)
+        body |> JSON.decode!() |> Map.get("artists") |> List.wrap()
+
+      {:ok, %HTTPoison.Response{status_code: 403}} ->
+        Agent.update(CredStore, &%{&1 | related_artists?: false})
+        []
 
       _error ->
         []
+    end
+  end
+
+  @doc """
+  The artists credited on one page of playlist items.
+
+  A playlist item isn't always a track with artists on it: one whose track
+  has since been pulled from Spotify arrives as `null`, and a podcast
+  episode has no artists at all. Both simply contribute nothing.
+  """
+  def page_artists(page) do
+    page
+    |> items()
+    |> Enum.flat_map(fn
+      %{"track" => %{"artists" => artists}} when is_list(artists) -> artists
+      _not_a_track -> []
+    end)
+  end
+
+  defp items(page), do: page |> Map.get("items") |> List.wrap()
+
+  # Walks a paged Spotify response, pulling each page through `extract` and
+  # following its `next` link, up to `pages_left` pages. A page that fails
+  # to come back ends the walk with whatever we already have.
+  defp fetch_pages(_credentials, nil, _pages_left, _extract), do: []
+  defp fetch_pages(_credentials, _url, 0, _extract), do: []
+
+  defp fetch_pages(credentials, url, pages_left, extract) do
+    case get_json(credentials, url) do
+      {:ok, page} ->
+        extract.(page) ++ fetch_pages(credentials, page["next"], pages_left - 1, extract)
+
+      :error ->
+        []
+    end
+  end
+
+  defp get_json(credentials, url) do
+    case Spotify.Client.get(credentials, url) do
+      {:ok, %HTTPoison.Response{status_code: code, body: body}} when code in 200..299 ->
+        {:ok, JSON.decode!(body)}
+
+      _error ->
+        :error
     end
   end
 

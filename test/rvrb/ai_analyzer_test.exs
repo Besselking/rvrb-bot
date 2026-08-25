@@ -190,4 +190,83 @@ defmodule Rvrb.AiAnalyzerTest do
       assert %{level: :unlikely} = AiAnalyzer.verdict(recent0, prior0, 0.01)
     end
   end
+
+  describe "verdict/4 with an AI-playlist listing" do
+    @quiet %{count: 1, albums: 0, singles: 1, track_score: 1}
+    @slop %{id: "1VX1plT2A6rwob0SwuEkvH", name: "Probably AI Clanker SLOP"}
+    @suno %{id: "7pRdrM4ZyQFStXGGowzRGk", name: "Suno Generated Music"}
+
+    test "an artist on a list is called out however quiet their release history is" do
+      assert %{level: :listed, label: label} =
+               AiAnalyzer.verdict(@quiet, @quiet, nil, {:listed, [@slop]})
+
+      assert label =~ "known AI artist"
+      assert label =~ "Probably AI Clanker SLOP"
+      assert label =~ ~s|href="https://open.spotify.com/playlist/1VX1plT2A6rwob0SwuEkvH"|
+    end
+
+    test "links every list the artist turned up on" do
+      assert %{label: label} = AiAnalyzer.verdict(@quiet, @quiet, nil, {:listed, [@slop, @suno]})
+
+      assert label =~ "Probably AI Clanker SLOP"
+      assert label =~ "Suno Generated Music"
+    end
+
+    test "falls back to a generic name for a list whose name didn't come back" do
+      playlists = [%{id: "1VX1plT2A6rwob0SwuEkvH", name: nil}]
+
+      assert %{label: label} = AiAnalyzer.verdict(@quiet, @quiet, nil, {:listed, playlists})
+      assert label =~ "an AI playlist"
+    end
+
+    test "escapes a playlist name, which is Spotify's text rather than ours" do
+      playlists = [%{id: "1VX1plT2A6rwob0SwuEkvH", name: ~s|<script>"AI"</script>|}]
+
+      assert %{label: label} = AiAnalyzer.verdict(@quiet, @quiet, nil, {:listed, playlists})
+      refute label =~ "<script>"
+      assert label =~ "&lt;script&gt;"
+    end
+
+    test "a flagged related artist bumps the guess up a level and says who" do
+      recent = %{count: 10, albums: 4, singles: 6, track_score: 45}
+
+      assert %{level: :possible} = AiAnalyzer.verdict(recent, @quiet, 2.0, :none)
+
+      assert %{level: :likely, label: label} =
+               AiAnalyzer.verdict(recent, @quiet, 2.0, {:related, ["Slopmaster"]})
+
+      assert label =~ "related to Slopmaster on a known AI playlist"
+    end
+
+    test "names the first couple of flagged related artists and counts the rest" do
+      assert %{label: label} =
+               AiAnalyzer.verdict(@quiet, @quiet, nil, {:related, ["A", "B", "C", "D"]})
+
+      assert label =~ "related to A, B (+2 more)"
+    end
+
+    test "escapes related artist names too" do
+      assert %{label: label} = AiAnalyzer.verdict(@quiet, @quiet, nil, {:related, ["<b>x</b>"]})
+
+      refute label =~ "<b>"
+      assert label =~ "&lt;b&gt;"
+    end
+
+    test "checking and finding nothing reads exactly like not checking at all" do
+      recent = %{count: 10, albums: 4, singles: 6, track_score: 45}
+
+      unknown = AiAnalyzer.verdict(recent, @quiet, 2.0, :unknown)
+      assert AiAnalyzer.verdict(recent, @quiet, 2.0, :none) == unknown
+      assert AiAnalyzer.verdict(recent, @quiet, 2.0) == unknown
+    end
+  end
+
+  describe "listing/1" do
+    test "is :unknown while there's no playlist index to check against" do
+      # `Rvrb.AiPlaylistServer` isn't started in test (see
+      # `Rvrb.Application.start/2`), which also means this never reaches
+      # Spotify for the related-artist pass.
+      assert AiAnalyzer.listing("4LLpKhyESsyAXpc4laK94U") == :unknown
+    end
+  end
 end

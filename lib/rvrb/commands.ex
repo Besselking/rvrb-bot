@@ -71,7 +71,7 @@ defmodule Rvrb.Commands do
       name: "artist",
       usage: "\\artist",
       description:
-        "Show Spotify info for the currently playing track's artist(s), plus a guess at whether they're an AI spam project.",
+        "Show Spotify info for the currently playing track's artist(s), plus a check against known AI-music playlists and a guess at whether they're an AI spam project.",
       handler: &__MODULE__.artist/3
     },
     %{
@@ -444,9 +444,9 @@ defmodule Rvrb.Commands do
       genres: if(info.genres == [], do: "—", else: Enum.join(info.genres, ", ")),
       popularity: to_string(info.popularity),
       followers: format_followers(info.followers),
-      # The verdict label is built from release counts and carries its own
-      # `<br>`, so it's markup the bot wrote rather than anything a user or
-      # Spotify can influence.
+      # The verdict label is markup `Rvrb.AiAnalyzer` built - release
+      # counts, its own `<br>`s, and playlist links whose names it escaped
+      # on the way in - rather than anything a user can influence.
       ai_verdict: {:safe, verdict_label}
     }
   end

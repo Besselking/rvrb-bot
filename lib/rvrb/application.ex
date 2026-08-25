@@ -31,7 +31,10 @@ defmodule Rvrb.Application do
         %{
           id: Rvrb.SpotifyServer,
           start: {Rvrb.SpotifyServer, :start_link, []}
-        }
+        },
+        # After `Rvrb.SpotifyServer`: this one starts fetching as soon as it
+        # is up, and those fetches go through the credential store above.
+        Rvrb.AiPlaylistServer
       ]
     else
       []
