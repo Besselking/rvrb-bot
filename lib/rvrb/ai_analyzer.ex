@@ -21,11 +21,21 @@ defmodule Rvrb.AiAnalyzer do
   one whose release rate suddenly spiked starting in 2024 (or who has no
   releases before then at all) is treated as more suspicious.
 
+  Before any of that, though, the artist is looked up in
+  `Rvrb.AiPlaylistServer` - a cached index of community-curated playlists
+  of known AI-generated music. Somebody having listened and filed the
+  artist under AI beats guessing from release counts, so a hit there
+  replaces the heuristic rather than feeding into it. Where the artist
+  isn't listed but Spotify says they're *related* to somebody who is, that
+  counts as one more reason to be suspicious and bumps the guess up a
+  level.
+
   Note: `Rvrb.SpotifyServer.artist_albums/1` caps how many releases it
   fetches, so an artist with an especially deep catalog may have their
   earliest release (and therefore their pre-2024 cadence) underestimated.
   """
 
+  alias Rvrb.AiPlaylistServer
   alias Rvrb.SpotifyServer
 
   @since_year 2024
@@ -61,9 +71,43 @@ defmodule Rvrb.AiAnalyzer do
       spotify_url: get_in(artist.external_urls, ["spotify"]),
       recent_releases: recent,
       prior_releases: prior,
-      ai_verdict: verdict(recent, prior, ratio)
+      ai_verdict: verdict(recent, prior, ratio, listing(artist_id))
     }
   end
+
+  @doc """
+  What the AI playlists have to say about `artist_id`: `{:listed,
+  playlists}` for the artist themselves, `{:related, artist_names}` when
+  one of their related artists is on a list instead, `:none` when neither
+  is, and `:unknown` when there's no index to check against.
+
+  The related-artist pass only runs when the artist themselves came back
+  clean - it costs a request, and there's nothing it could add to a hit.
+  """
+  def listing(artist_id) do
+    case AiPlaylistServer.lookup(artist_id) do
+      :none -> related_listing(artist_id)
+      listed_or_unknown -> listed_or_unknown
+    end
+  end
+
+  # Spotify deprecated its related-artists endpoint in November 2024 (see
+  # `SpotifyServer.related_artists/1`), so on most apps this quietly finds
+  # nothing. That's the same answer as an artist whose neighbours are all
+  # clean, which is fine: this only ever adds suspicion, never clears it.
+  defp related_listing(artist_id) do
+    artist_id
+    |> SpotifyServer.related_artists()
+    |> Enum.filter(&listed?/1)
+    |> Enum.map(& &1["name"])
+    |> case do
+      [] -> :none
+      names -> {:related, names}
+    end
+  end
+
+  defp listed?(%{"id" => id}), do: match?({:listed, _playlists}, AiPlaylistServer.lookup(id))
+  defp listed?(_artist), do: false
 
   @doc """
   Summarizes the `albums` matching `year_filter` (a function applied to
@@ -146,14 +190,29 @@ defmodule Rvrb.AiAnalyzer do
     recent_cadence / prior_cadence
   end
 
-  @doc "Classifies an artist's AI-spam likelihood from their recent release volume and cadence change."
-  def verdict(recent, prior, cadence_ratio) do
+  @doc """
+  Classifies an artist's AI-spam likelihood from their recent release
+  volume, their change in cadence, and whatever `listing/1` turned up.
+  """
+  def verdict(recent, prior, cadence_ratio, listing \\ :unknown)
+
+  # Somebody has already listened to this one and filed it under AI. That
+  # isn't a guess, so it doesn't get averaged into one - it replaces it.
+  def verdict(_recent, _prior, _cadence_ratio, {:listed, playlists}) do
+    %{
+      level: :listed,
+      label: emoji_and_text(:listed) <> "<br>(listed on " <> playlist_links(playlists) <> ")"
+    }
+  end
+
+  def verdict(recent, prior, cadence_ratio, listing) do
     level =
       recent.track_score
       |> base_level()
       |> adjust_for_cadence(cadence_ratio)
+      |> adjust_for_listing(listing)
 
-    %{level: level, label: label(level, recent, prior, cadence_ratio)}
+    %{level: level, label: label(level, recent, prior, cadence_ratio, listing)}
   end
 
   defp base_level(track_score) when track_score >= @spam_track_threshold, do: :likely
@@ -170,19 +229,53 @@ defmodule Rvrb.AiAnalyzer do
 
   defp adjust_for_cadence(level, _ratio), do: level
 
+  defp adjust_for_listing(level, {:related, _names}), do: shift(level, 1)
+  defp adjust_for_listing(level, _listing), do: level
+
   defp shift(level, delta) do
     index = Enum.find_index(@levels, &(&1 == level))
     new_index = (index + delta) |> max(0) |> min(length(@levels) - 1)
     Enum.at(@levels, new_index)
   end
 
-  defp label(level, recent, prior, cadence_ratio) do
-    emoji_and_text(level) <> "<br>(" <> context(recent, prior, cadence_ratio) <> ")"
+  defp label(level, recent, prior, cadence_ratio, listing) do
+    emoji_and_text(level) <>
+      "<br>(" <> context(recent, prior, cadence_ratio) <> ")" <> related_note(listing)
   end
 
+  defp emoji_and_text(:listed), do: "🤖 known AI artist"
   defp emoji_and_text(:likely), do: "🤖 likely AI spam"
   defp emoji_and_text(:possible), do: "🤔 worth a second look"
   defp emoji_and_text(:unlikely), do: "🎧 looks normal"
+
+  # How many flagged related artists to name before falling back to a count.
+  @max_related_names 2
+
+  defp related_note({:related, names}) do
+    "<br>related to " <> names_summary(names) <> " on a known AI playlist"
+  end
+
+  defp related_note(_listing), do: ""
+
+  # Related-artist and playlist names come from Spotify, so they're escaped
+  # here - everything else in a label is text this module wrote itself, and
+  # `Rvrb.Commands` hands the finished label to chat as markup.
+  defp names_summary(names) do
+    {shown, rest} = Enum.split(names, @max_related_names)
+    shown = Enum.map_join(shown, ", ", &Html.escape/1)
+
+    case length(rest) do
+      0 -> shown
+      more -> shown <> " (+#{more} more)"
+    end
+  end
+
+  defp playlist_links(playlists), do: Enum.map_join(playlists, ", ", &playlist_link/1)
+
+  defp playlist_link(%{id: id, name: name}) do
+    url = Html.escape("https://open.spotify.com/playlist/#{id}")
+    "<a href=\"#{url}\" target=\"_blank\">#{Html.escape(name || "an AI playlist")}</a>"
+  end
 
   defp context(recent, %{count: 0}, _cadence_ratio) do
     release_breakdown(recent) <> "<br>since #{@since_year}, none before then"
