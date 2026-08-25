@@ -82,5 +82,34 @@ jobs:
       - run: mix compile --warnings-as-errors
 
       - run: mix format --check-formatted
+  # Nothing else here looks at flake.nix, so an upstream nixpkgs change -
+  # the mix builders dropping their `elixir` argument, say - otherwise
+  # surfaces on somebody's deploy rather than in CI. Evaluating is enough
+  # to catch that: the builders assert on their arguments at eval time, and
+  # forcing a drvPath is seconds rather than a full release build.
+  flake:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      # Runners are x86_64-linux, hence the explicit system - `nix eval`
+      # wants a concrete attribute path, and this only has to cover the
+      # platform the release is actually built for. No build cache here:
+      # forcing a drvPath builds nothing to cache.
+      - name: Evaluate the flake outputs
+        run: |
+          set -euo pipefail
+          for attr in \
+            packages.x86_64-linux.default \
+            packages.x86_64-linux.mixFodDeps \
+            devShells.x86_64-linux.default
+          do
+            echo "==> $attr"
+            nix eval --raw ".#$attr.drvPath"
+            echo
+          done
 
       - run: mix test
