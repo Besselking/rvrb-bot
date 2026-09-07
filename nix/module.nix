@@ -60,6 +60,48 @@ in
       '';
     };
 
+    distribution = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Run the release with Erlang distribution on, so another node on
+          this machine can call into the bot - `Rvrb.Stats.snapshot/0` is
+          what bes.is reads over it.
+
+          Off by default: a single bot instance has no need for it, and
+          the distribution port is effectively an unauthenticated admin
+          socket for anyone who has the cookie. With this on,
+          `RELEASE_COOKIE` becomes a real secret and has to come from
+          `environmentFile` - the module refuses to build otherwise,
+          rather than leave a known cookie in the world-readable Nix
+          store.
+        '';
+      };
+
+      nodeName = lib.mkOption {
+        type = lib.types.str;
+        default = "rvrb@127.0.0.1";
+        description = ''
+          The node name to register with EPMD, as `name@host`. The default
+          keeps the node reachable only from this machine, which is all a
+          reader running alongside it needs.
+        '';
+      };
+
+      localOnly = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Bind EPMD and the distribution listener to the loopback
+          interface, so a peer has to already be on this machine to reach
+          either. Turn this off only with the distribution port behind a
+          firewall or a tunnel - the protocol authenticates with the
+          cookie and then sends everything in the clear.
+        '';
+      };
+    };
+
     database.createLocally = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -94,6 +136,18 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = !cfg.distribution.enable || cfg.environmentFile != null;
+        message = ''
+          services.rvrb-bot.distribution.enable needs an environmentFile
+          setting RELEASE_COOKIE - with distribution on, any peer that can
+          reach the port and knows the cookie can call into the node, so it
+          must not come from the world-readable Nix store.
+        '';
+      }
+    ];
+
     users.users.${cfg.user} = {
       isSystemUser = true;
       group = cfg.group;
@@ -129,16 +183,33 @@ in
         {
           RELEASE_TMP = "/var/lib/rvrb-bot/tmp";
           HOME = "/var/lib/rvrb-bot";
-          # A single bot instance has no need for distributed Erlang; this
-          # also sidesteps nixpkgs' mixRelease stripping the auto-generated
-          # releases/COOKIE file from the (immutable, shared) store path,
-          # which would otherwise make the release fail to boot entirely.
-          # The cookie's value is irrelevant with distribution off, it just
-          # has to be set to something.
-          RELEASE_DISTRIBUTION = "none";
-          RELEASE_COOKIE = "unused-release-distribution-is-none";
           RVRB_TZDATA_DIR = "/var/lib/rvrb-bot/tzdata";
         }
+        // (
+          if cfg.distribution.enable then
+            {
+              RELEASE_DISTRIBUTION = "name";
+              RELEASE_NODE = cfg.distribution.nodeName;
+              # RELEASE_COOKIE is deliberately absent: it is a secret now,
+              # so it comes from environmentFile (asserted below) rather
+              # than from the store.
+            }
+            // lib.optionalAttrs cfg.distribution.localOnly {
+              ERL_EPMD_ADDRESS = "127.0.0.1";
+              ERL_AFLAGS = "-kernel inet_dist_use_interface {127,0,0,1}";
+            }
+          else
+            {
+              # A single bot instance has no need for distributed Erlang;
+              # this also sidesteps nixpkgs' mixRelease stripping the
+              # auto-generated releases/COOKIE file from the (immutable,
+              # shared) store path, which would otherwise make the release
+              # fail to boot entirely. The cookie's value is irrelevant
+              # with distribution off, it just has to be set to something.
+              RELEASE_DISTRIBUTION = "none";
+              RELEASE_COOKIE = "unused-release-distribution-is-none";
+            }
+        )
         // lib.optionalAttrs cfg.database.createLocally {
           RVRB_DB_NAME = cfg.user;
         }

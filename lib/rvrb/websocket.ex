@@ -84,6 +84,34 @@ defmodule Rvrb.WebSocket do
     chat("current queue:" <> table)
   end
 
+  @doc """
+  The connection's live view of the room - see `Rvrb.WebSocket.State.snapshot/1`
+  for what's in it - or `nil` when the bot isn't connected (no socket
+  process, or one too busy to answer inside `timeout`).
+
+  A plain send/receive rather than a `GenServer.call/3`: Fresh owns the
+  process and exposes `handle_info/2` but no call callback, and reading
+  the room's state must never be able to make the socket wait on the
+  caller. `nil` is a normal answer here, not an error - the bot being
+  down is exactly what a status page is asking about.
+  """
+  def live_state(timeout \\ 2_000) do
+    case Process.whereis(Connection) do
+      nil ->
+        nil
+
+      pid ->
+        ref = make_ref()
+        send(pid, {:live_state, self(), ref})
+
+        receive do
+          {:live_state, ^ref, snapshot} -> snapshot
+        after
+          timeout -> nil
+        end
+    end
+  end
+
   def start_link(bot_key) when is_binary(bot_key) do
     Fresh.start_link(
       "wss://app.rvrb.one/ws-bot?apiKey=#{bot_key}",
@@ -405,6 +433,14 @@ defmodule Rvrb.WebSocket do
   end
 
   defp apply_vote(:hold, _name, voted?, _cast, _retract), do: voted?
+
+  # Answers `live_state/1`. Nothing here touches the database or the
+  # socket: it's a projection of state we already hold, so a reader
+  # hammering it can't slow the room down or wedge the connection.
+  def handle_info({:live_state, from, ref}, state) do
+    send(from, {:live_state, ref, State.snapshot(state)})
+    {:ok, state}
+  end
 
   def handle_in({:text, data}, state) do
     Logger.debug("IN: #{data}")
