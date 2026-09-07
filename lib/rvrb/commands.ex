@@ -13,11 +13,11 @@ defmodule Rvrb.Commands do
   alias Rvrb.AiAnalyzer
   alias Rvrb.GenreServer
   alias Rvrb.Play
-  alias Rvrb.PlayTracker
   alias Rvrb.Rotation
   alias Rvrb.SpotifyServer
   alias Rvrb.SpotifyUrl
   alias Rvrb.User
+  alias Rvrb.WebSocket.State
 
   require Logger
 
@@ -268,7 +268,7 @@ defmodule Rvrb.Commands do
       djs ->
         estimate =
           Rotation.estimate(djs, dj_averages(djs),
-            remaining_ms: remaining_track_ms(state),
+            remaining_ms: State.remaining_track_ms(state),
             fallback_ms: Play.average_duration()
           )
 
@@ -287,18 +287,6 @@ defmodule Rvrb.Commands do
     averages = Play.average_durations(Map.values(user_ids))
 
     Map.new(user_ids, fn {rvrb_id, user_id} -> {rvrb_id, averages[user_id]} end)
-  end
-
-  # How much of the current track is left, or nil if we can't tell - the
-  # track carried no duration, or the bot came up mid-track and never saw
-  # this one start.
-  defp remaining_track_ms(state) do
-    started_at = state.current_track_started_at
-    duration_ms = PlayTracker.duration_ms(state.current_track)
-
-    if is_integer(started_at) and is_integer(duration_ms) do
-      max(duration_ms - (System.monotonic_time(:millisecond) - started_at), 0)
-    end
   end
 
   @doc """

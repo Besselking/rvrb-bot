@@ -296,6 +296,110 @@ defmodule Rvrb.WebSocketTest do
     end
   end
 
+  describe "State.snapshot/1" do
+    test "projects the room without the raw track payload" do
+      track = %{
+        "id" => "spotify-1",
+        "name" => "Windowlicker",
+        "artists" => [%{"name" => "Aphex Twin", "id" => "artist-1"}],
+        "duration_ms" => 360_000,
+        "album" => %{"images" => [%{"url" => "http://art", "width" => 640}]}
+      }
+
+      state = %State{
+        channel_id: "room-1",
+        djs: ["dj-a", "dj-b"],
+        current_track: track,
+        current_track_started_at: System.monotonic_time(:millisecond),
+        dopes: ["listener-1"],
+        stars: [],
+        doped: true,
+        queue: [%{"name" => "Queued"}],
+        bots: MapSet.new(["bot-1"])
+      }
+
+      snapshot = State.snapshot(state)
+
+      assert snapshot.channel_id == "room-1"
+      assert snapshot.djs == ["dj-a", "dj-b"]
+      assert snapshot.dopes == ["listener-1"]
+      assert snapshot.auto_doped
+      refute snapshot.auto_starred
+      assert snapshot.queued_tracks == 1
+      assert snapshot.known_bots == 1
+
+      assert snapshot.current_track == %{
+               spotify_track_id: "spotify-1",
+               name: "Windowlicker",
+               artist_names: ["Aphex Twin"],
+               duration_ms: 360_000,
+               album_art: "http://art"
+             }
+    end
+
+    test "reports no track before the first one has played" do
+      assert State.snapshot(%State{}).current_track == nil
+    end
+
+    test "times the current track from when it started" do
+      state = %State{
+        current_track: %{"duration_ms" => 300_000},
+        current_track_started_at: System.monotonic_time(:millisecond) - 60_000
+      }
+
+      snapshot = State.snapshot(state)
+
+      assert_in_delta snapshot.elapsed_ms, 60_000, 1_000
+      assert_in_delta snapshot.remaining_ms, 240_000, 1_000
+    end
+
+    test "leaves the timings unknown when the bot came up mid-track" do
+      state = %State{current_track: %{"duration_ms" => 300_000}, current_track_started_at: nil}
+
+      assert %{elapsed_ms: nil, remaining_ms: nil} = State.snapshot(state)
+    end
+
+    test "leaves the remaining time unknown when the track carried no duration" do
+      state = %State{
+        current_track: %{"name" => "Untimed"},
+        current_track_started_at: System.monotonic_time(:millisecond)
+      }
+
+      assert State.snapshot(state).remaining_ms == nil
+    end
+
+    # A track that has overrun its own length reads as finished rather
+    # than as negative time, which a reader would have to special-case.
+    test "clamps a track that has run past its length to zero" do
+      state = %State{
+        current_track: %{"duration_ms" => 1_000},
+        current_track_started_at: System.monotonic_time(:millisecond) - 60_000
+      }
+
+      assert State.snapshot(state).remaining_ms == 0
+    end
+  end
+
+  describe "live_state/1" do
+    test "answers with a snapshot of the connection's state" do
+      state = %State{channel_id: "room-1", djs: ["dj-a"]}
+
+      assert {:ok, ^state} =
+               WebSocket.handle_info({:live_state, self(), :test_ref}, state)
+
+      assert_received {:live_state, :test_ref, snapshot}
+      assert snapshot.channel_id == "room-1"
+      assert snapshot.djs == ["dj-a"]
+    end
+
+    test "answers nil when there is no connection to ask" do
+      # Nothing is registered as `Connection` in the suite - the state a
+      # status page sees whenever the bot is down.
+      refute Process.whereis(Connection)
+      assert WebSocket.live_state(50) == nil
+    end
+  end
+
   defp meter(voting) do
     %{"method" => "updateChannelMeter", "params" => %{"voting" => voting}}
   end

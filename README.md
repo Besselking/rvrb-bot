@@ -72,6 +72,42 @@ Spotify-backed commands. Non-secret overrides (`RVRB_BOT_ADMINS`,
 `services.rvrb-bot.database.createLocally` to provision a local PostgreSQL
 role and database.
 
+## Stats over distribution
+
+`Rvrb.Stats.snapshot/0` returns everything a status page needs in one
+term: what is playing right now, the DJ queue with its rotation estimate,
+room-wide totals, per-day play counts, the leaderboards, and the last few
+plays. It is read from outside the BEAM over ordinary Erlang
+distribution - [bes.is](https://bes.is/rvrb) does it from .NET with
+[BeamSharp](https://github.com/Besselking/BeamSharp), which dials this
+node and issues:
+
+```elixir
+:erpc.call(:"rvrb@127.0.0.1", Rvrb.Stats, :snapshot, [])
+```
+
+Nothing new listens on a port for this, and nothing on the socket process
+does any database work: the connection answers with a projection of state
+it already holds (`Rvrb.WebSocket.State.snapshot/1`), and every query runs
+in the caller's process.
+
+The release runs with distribution **off** by default, so a reader needs
+it turned on first:
+
+```nix
+services.rvrb-bot.distribution = {
+  enable = true;
+  nodeName = "rvrb@127.0.0.1";  # loopback-only, the default
+};
+```
+
+With that on, `RELEASE_COOKIE` stops being a placeholder and has to be a
+real secret in `environmentFile` alongside the bot token - anyone who can
+reach the distribution port and knows the cookie can call into the node,
+not just into `Rvrb.Stats`. `distribution.localOnly` (on by default) keeps
+both EPMD and the distribution listener on loopback, so that "anyone" has
+to already be on the machine.
+
 ## Logging
 
 Everything goes through `Logger`. `dev` runs at `:debug` - every frame in
