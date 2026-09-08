@@ -142,13 +142,16 @@ defmodule Rvrb.Wikipedia do
   @heading_line ~r/^(={2,})\s*(.+?)\s*\1$/
 
   @doc """
-  What English Wikipedia has on `artist_name`, as
+  What English Wikipedia has on `artist_name`:
 
-      %{title: "Article title", url: "https://...", passages: [%{section: "Legal issues", text: "..."}]}
+      {:ok, %{title: "Article title", url: "https://...", passages: [%{section: "Legal issues", text: "..."}]}}
 
-  or `nil` - no article, not a musician's article, nothing in it worth
-  quoting, or Wikipedia not answering. Callers print nothing for `nil`,
-  which is the common case.
+  `{:ok, nil}` is the other answer worth having - no article, not a
+  musician's article, or nothing in it worth quoting - and it's the
+  common one. `:error` means Wikipedia didn't answer, which is not the
+  same thing at all: it's the one outcome `Rvrb.Wikipedia.Cache` won't
+  remember, since a throttled minute would otherwise cost an artist their
+  passages for as long as the cache holds them.
 
   `api` is the module the requests go through, so a test can hand this a
   stub instead of reaching the network.
@@ -156,16 +159,27 @@ defmodule Rvrb.Wikipedia do
   def controversies(artist_name, api \\ Api)
 
   def controversies(artist_name, api) when is_binary(artist_name) do
-    with %{title: title} <- article(artist_name, api),
-         {:ok, extract} <- api.extract(title),
-         [_ | _] = passages <- passages(extract) do
-      %{title: title, url: article_url(title), passages: passages}
-    else
-      _nothing -> nil
+    case article(artist_name, api) do
+      {:ok, candidate} -> read_article(candidate, api)
+      :none -> {:ok, nil}
+      :error -> :error
     end
   end
 
-  def controversies(_artist_name, _api), do: nil
+  def controversies(_artist_name, _api), do: {:ok, nil}
+
+  defp read_article(%{title: title}, api) do
+    case api.extract(title) do
+      {:ok, extract} ->
+        case passages(extract) do
+          [] -> {:ok, nil}
+          passages -> {:ok, %{title: title, url: article_url(title), passages: passages}}
+        end
+
+      _error ->
+        :error
+    end
+  end
 
   @doc "The public article URL for `title`."
   def article_url(title), do: @article_base <> URI.encode(String.replace(title, " ", "_"))
@@ -185,23 +199,30 @@ defmodule Rvrb.Wikipedia do
   defp article(artist_name, api) do
     case api.page(artist_name) do
       {:ok, candidate} ->
-        if artist_article?(candidate), do: candidate, else: searched_article(artist_name, api)
+        if artist_article?(candidate),
+          do: {:ok, candidate},
+          else: searched_article(artist_name, api)
 
-      _no_page ->
+      :missing ->
         searched_article(artist_name, api)
+
+      :error ->
+        :error
     end
   end
 
   defp searched_article(artist_name, api) do
     case api.search(artist_name, @max_candidates) do
       {:ok, candidates} ->
-        Enum.find(
-          candidates,
-          &(artist_article?(&1) and same_subject?(&1.title, artist_name))
-        )
+        candidates
+        |> Enum.find(&(artist_article?(&1) and same_subject?(&1.title, artist_name)))
+        |> case do
+          nil -> :none
+          candidate -> {:ok, candidate}
+        end
 
-      _no_results ->
-        nil
+      :error ->
+        :error
     end
   end
 

@@ -486,7 +486,7 @@ defmodule Rvrb.Commands do
   # the task instead, and an artist whose lookup blew up is one missing
   # section, the same as an artist Wikipedia has nothing on.
   defp controversies(artist_name) do
-    Wikipedia.controversies(artist_name)
+    Wikipedia.Cache.controversies(artist_name)
   rescue
     error ->
       log_wikipedia_failure(artist_name, Exception.format(:error, error, __STACKTRACE__))

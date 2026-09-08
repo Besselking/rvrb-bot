@@ -44,7 +44,9 @@ defmodule Rvrb.Wikipedia.Api do
   made them, which is exactly the distinction `Rvrb.Wikipedia` reads these
   for.
 
-  `:error` when there's no such page.
+  `:missing` when Wikipedia has no such page, and `:error` when the
+  request didn't happen - a caller that caches its answers needs those to
+  be different things.
   """
   def page(title) do
     params = %{
@@ -88,7 +90,7 @@ defmodule Rvrb.Wikipedia.Api do
          |> Enum.flat_map(fn page ->
            case candidate(page) do
              {:ok, candidate} -> [candidate]
-             :error -> []
+             :missing -> []
            end
          end)}
 
@@ -129,7 +131,7 @@ defmodule Rvrb.Wikipedia.Api do
 
   defp candidate(%{"title" => title} = page) do
     if Map.get(page, "missing", false) do
-      :error
+      :missing
     else
       categories =
         page
@@ -141,7 +143,7 @@ defmodule Rvrb.Wikipedia.Api do
     end
   end
 
-  defp candidate(_page), do: :error
+  defp candidate(_page), do: :missing
 
   defp get(params) do
     url = @endpoint <> "?" <> URI.encode_query(Map.merge(@base_params, params))

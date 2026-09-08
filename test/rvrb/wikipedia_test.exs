@@ -33,19 +33,21 @@ defmodule Rvrb.WikipediaTest do
   """
 
   # `Rvrb.Wikipedia.Api` stand-in: each function answers from a map the
-  # test put in the process dictionary, and `:error` for anything the test
-  # didn't set up - which is what the real one returns for a page that
-  # isn't there or a request that didn't come back.
+  # test put in the process dictionary.
   defmodule StubApi do
-    def page(title), do: canned(:page, title)
-    def search(name, _limit), do: canned(:search, name)
-    def extract(title), do: canned(:extract, title)
+    # The defaults are the answers Wikipedia gives for a subject it simply
+    # doesn't have: no page, and a search that turned nothing up. A test
+    # that wants a *failed* request stubs `:error` for it explicitly -
+    # that's the distinction the cache is built on.
+    def page(title), do: canned(:page, title, :missing)
+    def search(name, _limit), do: canned(:search, name, {:ok, []})
+    def extract(title), do: canned(:extract, title, :error)
 
-    defp canned(call, key) do
+    defp canned(call, key, default) do
       :wikipedia_api
       |> Process.get(%{})
       |> Map.get(call, %{})
-      |> Map.get(key, :error)
+      |> Map.get(key, default)
     end
   end
 
@@ -255,7 +257,7 @@ defmodule Rvrb.WikipediaTest do
         extract: %{"R. Kelly" => {:ok, @extract}}
       })
 
-      assert %{title: "R. Kelly", url: url, passages: [_ | _]} =
+      assert {:ok, %{title: "R. Kelly", url: url, passages: [_ | _]}} =
                Wikipedia.controversies("R. Kelly", StubApi)
 
       assert url == "https://en.wikipedia.org/wiki/R._Kelly"
@@ -275,7 +277,7 @@ defmodule Rvrb.WikipediaTest do
         extract: %{"Bread (band)" => {:ok, @extract}, "Bread" => {:ok, @extract}}
       })
 
-      assert %{title: "Bread (band)"} = Wikipedia.controversies("Bread", StubApi)
+      assert {:ok, %{title: "Bread (band)"}} = Wikipedia.controversies("Bread", StubApi)
     end
 
     test "takes the first search hit that is a musician of that name" do
@@ -291,7 +293,7 @@ defmodule Rvrb.WikipediaTest do
         extract: %{"Ye (rapper)" => {:ok, @extract}}
       })
 
-      assert %{title: "Ye (rapper)"} = Wikipedia.controversies("Ye", StubApi)
+      assert {:ok, %{title: "Ye (rapper)"}} = Wikipedia.controversies("Ye", StubApi)
     end
 
     test "won't quote an article about somebody else with a better ranked name" do
@@ -302,7 +304,7 @@ defmodule Rvrb.WikipediaTest do
         extract: %{"R. Kelly" => {:ok, @extract}}
       })
 
-      assert Wikipedia.controversies("Some Unknown Band", StubApi) == nil
+      assert Wikipedia.controversies("Some Unknown Band", StubApi) == {:ok, nil}
     end
 
     test "says nothing about an artist whose article says nothing" do
@@ -311,17 +313,35 @@ defmodule Rvrb.WikipediaTest do
         extract: %{"Aphex Twin" => {:ok, "Aphex Twin is an Irish-British musician."}}
       })
 
-      assert Wikipedia.controversies("Aphex Twin", StubApi) == nil
+      assert Wikipedia.controversies("Aphex Twin", StubApi) == {:ok, nil}
     end
 
-    test "says nothing when Wikipedia doesn't answer" do
+    test "an artist Wikipedia has never heard of is an answer, not a failure" do
       stub_api(%{})
 
-      assert Wikipedia.controversies("R. Kelly", StubApi) == nil
+      assert Wikipedia.controversies("Nobody At All", StubApi) == {:ok, nil}
+    end
+
+    test "a lookup that didn't happen is not an answer" do
+      stub_api(%{page: %{"R. Kelly" => :error}})
+
+      assert Wikipedia.controversies("R. Kelly", StubApi) == :error
+    end
+
+    test "a search that didn't happen is not an answer either" do
+      stub_api(%{search: %{"R. Kelly" => :error}})
+
+      assert Wikipedia.controversies("R. Kelly", StubApi) == :error
+    end
+
+    test "an article it found but couldn't read is not an answer" do
+      stub_api(%{page: %{"R. Kelly" => musician("R. Kelly")}})
+
+      assert Wikipedia.controversies("R. Kelly", StubApi) == :error
     end
 
     test "says nothing for an artist with no name" do
-      assert Wikipedia.controversies(nil, StubApi) == nil
+      assert Wikipedia.controversies(nil, StubApi) == {:ok, nil}
     end
   end
 end
