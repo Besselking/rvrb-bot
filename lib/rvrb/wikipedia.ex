@@ -16,6 +16,9 @@ defmodule Rvrb.Wikipedia do
       isn't about music does it fall back to searching - where a hit also
       has to carry the same name as the artist, so an unknown artist can't
       pick up the controversies of whoever the search engine liked best.
+      Two musicians who genuinely share a name are the case this can't
+      tell apart; it takes the better known of them, which is the one a
+      reader following the link will recognize as wrong.
     * Nothing found means nothing printed. Most artists match nothing,
       and a `\\artist` that stays a table is the normal case.
 
@@ -26,7 +29,11 @@ defmodule Rvrb.Wikipedia do
   site and says nothing about how somebody treated anybody, so only the
   compounds ("sexual abuse", "child abuse", "domestic abuse") are matched.
   Same reasoning keeps "criticized" and "cult" out: album reviews and cult
-  classics would drown everything else.
+  classics would drown everything else. Bare "alleged" went the same way
+  after it turned up a sentence about Boards of Canada allegedly having
+  recorded 400 song fragments - it's ordinary encyclopedic hedging, and
+  the accusations it does introduce ("alleged assault", "alleged
+  plagiarism") are matched by the accusation itself.
 
   This is still a keyword scan, not comprehension - it will quote a
   sentence about an allegation somebody was cleared of, or one about a
@@ -40,8 +47,10 @@ defmodule Rvrb.Wikipedia do
   @article_base "https://en.wikipedia.org/wiki/"
 
   # How many search hits to look at when the artist's name doesn't resolve
-  # to an article on its own.
-  @max_candidates 5
+  # to an article on its own. They come in one response either way, and
+  # ten rather than five is what reaches the band Bread (rank five behind
+  # the food, its history, and Panera) and Ghost (rank six).
+  @max_candidates 10
   # How many passages to quote per artist. The point is "there is
   # something here, go read it", not a dossier.
   @max_passages 4
@@ -54,7 +63,6 @@ defmodule Rvrb.Wikipedia do
   @keywords [
     "controvers\\w+",
     "allegations?",
-    "alleged\\w*",
     "accus\\w+",
     "lawsuits?",
     "sued",
@@ -124,10 +132,11 @@ defmodule Rvrb.Wikipedia do
   # track listings match keywords about as often as prose does.
   @skipped_sections ~r/^(references|external links|further reading|bibliography|notes|sources|discography|filmography|videography|awards( and nominations)?|track listing|see also)$/i
 
-  # Roughly, "end of sentence": terminator, then whitespace, then something
-  # that starts a new sentence. The lookbehinds keep initials ("R. Kelly")
-  # and the usual abbreviations from splitting a sentence in half.
-  @sentence_split ~r/(?<=[.!?])(?<!\s[A-Z]\.)(?<!\bMr\.)(?<!\bMs\.)(?<!\bDr\.)(?<!\bSt\.)(?<!\bNo\.)(?<!\bvs\.)\s+(?=[A-Z"'“(\[])/u
+  # Roughly, "end of sentence": terminator (with the closing quote or
+  # bracket that may follow it), then whitespace, then something that
+  # starts a new sentence. The negative lookbehinds keep initials ("R.
+  # Kelly") and the usual abbreviations from splitting a sentence in half.
+  @sentence_split ~r/(?:(?<=[.!?])|(?<=[.!?]["'”’)\]]))(?<!\s[A-Z]\.)(?<!\bMr\.)(?<!\bMs\.)(?<!\bDr\.)(?<!\bSt\.)(?<!\bNo\.)(?<!\bvs\.)\s+(?=[A-Z"'“(\[])/u
 
   # A plaintext extract writes headings as `== Heading ==`, one per line.
   @heading_line ~r/^(={2,})\s*(.+?)\s*\1$/
@@ -163,9 +172,16 @@ defmodule Rvrb.Wikipedia do
 
   # The artist's own name as a title first: that's an exact hit where the
   # article is named after them, and Wikipedia resolves redirects along the
-  # way ("Diddy" -> "Sean Combs", "Snoop Dogg" -> "Snoop Dogg"). Searching
-  # is the fallback for names that title-match something else entirely
-  # (the band Bread, the band Air) or that need a disambiguator.
+  # way ("Diddy" -> "Sean Combs"). Search is the fallback for a name
+  # something else has taken (the band Bread, the band Ghost) or that
+  # Wikipedia files under a longer title.
+  #
+  # Guessing disambiguated titles ("Bread (band)", "Air (band)") looks
+  # like a surer bet than search and isn't: Wikipedia qualifies them by
+  # nationality as readily as not ("Ghost (Swedish band)"), so the
+  # guessable half of the convention finds *a* musician of that name
+  # rather than the one playing - "Ghost (singer)" and "Air (singer)" are
+  # both real articles about somebody else entirely.
   defp article(artist_name, api) do
     case api.page(artist_name) do
       {:ok, candidate} ->
@@ -193,13 +209,15 @@ defmodule Rvrb.Wikipedia do
   @artist_category ~r/\b(music\w*|singers?|songwriters?|rappers?|vocalists?|guitarists?|drummers?|bassists?|pianists?|keyboardists?|composers?|record producers?|disc jockeys?|djs?|bands?|girl groups?|boy bands?|recording artists?|discograph\w*)\b/i
 
   # ...and ones that say it isn't a person or a group at all. An album or
-  # a song always carries its release year as a category, and a
-  # disambiguation page always says so, which is what these look for.
-  @work_category ~r/(\b\d{4} (albums|songs|singles|extended plays|soundtracks|films)\b|\bdisambiguation\b)/i
+  # a song always carries its release year as a category ("2002 albums",
+  # "2002 greatest hits albums"), and a disambiguation page always says
+  # so, which is what these look for.
+  @work_category ~r/(\b\d{4} [a-z\- ]*?(albums|songs|singles|extended plays|soundtracks|films)\b|\bdisambiguation\b)/i
 
   # A parenthesized disambiguator naming something other than a musical
-  # act - "Foo (album)" is not the artist Foo, "Foo (band)" is.
-  @work_title ~r/\((album|song|single|EP|mixtape|soundtrack|film|TV series|video game|novel|book|magazine|disambiguation)\)$/i
+  # act - "Foo (album)" and "Foo (Bar album)" are not the artist Foo,
+  # "Foo (band)" is.
+  @work_title ~r/\((\w+ )*(album|song|single|EP|mixtape|soundtrack|film|TV series|video game|novel|book|magazine|disambiguation)\)$/i
 
   @doc """
   Whether `candidate` (a `%{title: title, categories: categories}` from
@@ -273,7 +291,7 @@ defmodule Rvrb.Wikipedia do
       flagged? = heading != nil and heading =~ @keyword_regex
       sentences = sentences(text)
 
-      case Enum.filter(sentences, &(&1 =~ @keyword_regex)) do
+      case Enum.filter(sentences, &mentions?/1) do
         [] -> if flagged?, do: Enum.take(sentences, 1), else: []
         matching -> matching
       end
@@ -300,6 +318,16 @@ defmodule Rvrb.Wikipedia do
       %{heading: section.heading, text: section.lines |> Enum.reverse() |> Enum.join(" ")}
     end)
   end
+
+  # Short quoted spans don't count toward a match. In an article about a
+  # musician they are overwhelmingly song titles, which are edgy on
+  # purpose - quoting Nirvana's article at somebody because it names
+  # "Rape Me" is exactly the kind of noise that makes the rest of this
+  # worth ignoring. Only the matching is blind to them: a sentence that
+  # qualifies on its own prose is still shown whole, quotes and all.
+  @quoted ~r/"[^"]{1,80}"/u
+
+  defp mentions?(sentence), do: String.replace(sentence, @quoted, " ") =~ @keyword_regex
 
   defp sentences(text) do
     text

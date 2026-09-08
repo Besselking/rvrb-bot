@@ -113,6 +113,27 @@ defmodule Rvrb.WikipediaTest do
       assert text =~ "said something on stage"
     end
 
+    test "leaves ordinary encyclopedic hedging alone" do
+      extract =
+        "Geogaddi allegedly involved the creation of 400 song fragments, of which 22 were used."
+
+      assert Wikipedia.passages(extract) == []
+    end
+
+    test "doesn't quote an article for the name of a song" do
+      extract =
+        ~s(The network refused to let the band play "Rape Me", so Cobain sang "Lithium" instead.)
+
+      assert Wikipedia.passages(extract) == []
+    end
+
+    test "still quotes a sentence whose own prose matches, quotes and all" do
+      extract = ~s(He was convicted in 2021, months after releasing "Rape Me".)
+
+      assert [%{text: text}] = Wikipedia.passages(extract)
+      assert text =~ "Rape Me"
+    end
+
     test "finds nothing in an article that says nothing" do
       extract = """
       Aphex Twin is an Irish-British musician.
@@ -152,6 +173,14 @@ defmodule Rvrb.WikipediaTest do
       refute String.ends_with?(text, "…")
     end
 
+    test "ends a sentence at a closing quote" do
+      extract =
+        ~s(Cobain said "I wanted a name that was pretty." The band were later sued over the name.)
+
+      assert [%{text: text}] = Wikipedia.passages(extract)
+      assert text == "The band were later sued over the name."
+    end
+
     test "keeps an initial from splitting a sentence in half" do
       extract = "The album was produced by R. Kelly. He was later convicted of racketeering."
 
@@ -176,6 +205,13 @@ defmodule Rvrb.WikipediaTest do
       refute Wikipedia.artist_article?(%{
                title: "Ye (album)",
                categories: ["2018 albums", "Kanye West albums"]
+             })
+    end
+
+    test "leaves a record whose disambiguator names the artist too" do
+      refute Wikipedia.artist_article?(%{
+               title: "Nirvana (Nirvana album)",
+               categories: ["2002 greatest hits albums", "Nirvana (band) compilation albums"]
              })
     end
 

@@ -38,10 +38,23 @@ defmodule Rvrb.Wikipedia.Api do
   following redirects - so this is "the article this name means", not just
   "the article with this name".
 
+  Hidden categories are left out. They're maintenance bookkeeping
+  ("Articles with hCards"), and one of them - the MusicBrainz identifier
+  category - sits on records and tours as readily as on the artists who
+  made them, which is exactly the distinction `Rvrb.Wikipedia` reads these
+  for.
+
   `:error` when there's no such page.
   """
   def page(title) do
-    case get(%{"titles" => title, "prop" => "categories", "cllimit" => "max"}) do
+    params = %{
+      "titles" => title,
+      "prop" => "categories",
+      "cllimit" => "max",
+      "clshow" => "!hidden"
+    }
+
+    case get(params) do
       {:ok, %{"query" => %{"pages" => [page | _rest]}}} -> candidate(page)
       _error -> :error
     end
