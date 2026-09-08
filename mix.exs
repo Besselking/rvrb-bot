@@ -40,6 +40,10 @@ defmodule Rvrb.MixProject do
       # Vendored, not pulled from Hex - see vendor/fresh/README.md for why.
       {:fresh, path: "vendor/fresh"},
       {:ecto_sql, "~> 3.14"},
+      # Already here transitively (spotify_ex -> httpoison), but
+      # `Rvrb.Wikipedia.Api` calls it directly, so it's named here rather
+      # than borrowed. The version has to stay inside spotify_ex's `~> 1.0`.
+      {:httpoison, "~> 1.8"},
       {:postgrex, "~> 0.22"},
       {:timex, "~> 3.7.11"},
       # `mix deps.get` still flags hackney (transitive: spotify_ex ->

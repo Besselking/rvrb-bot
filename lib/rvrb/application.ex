@@ -34,7 +34,11 @@ defmodule Rvrb.Application do
         },
         # After `Rvrb.SpotifyServer`: this one starts fetching as soon as it
         # is up, and those fetches go through the credential store above.
-        Rvrb.AiPlaylistServer
+        Rvrb.AiPlaylistServer,
+        # Fetches nothing itself - it remembers what \artist's Wikipedia
+        # lookups found - but it belongs to the connection's commands, and
+        # keeping it here means no test shares state through it.
+        Rvrb.Wikipedia.Cache
       ]
     else
       []
