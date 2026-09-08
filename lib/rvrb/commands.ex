@@ -18,6 +18,7 @@ defmodule Rvrb.Commands do
   alias Rvrb.SpotifyUrl
   alias Rvrb.User
   alias Rvrb.WebSocket.State
+  alias Rvrb.Wikipedia
 
   require Logger
 
@@ -71,7 +72,7 @@ defmodule Rvrb.Commands do
       name: "artist",
       usage: "\\artist",
       description:
-        "Show Spotify info for the currently playing track's artist(s), plus a check against known AI-music playlists and a guess at whether they're an AI spam project.",
+        "Show Spotify info for the currently playing track's artist(s), plus a check against known AI-music playlists, a guess at whether they're an AI spam project, and anything their Wikipedia article says about allegations or controversies.",
       handler: &__MODULE__.artist/3
     },
     %{
@@ -406,10 +407,10 @@ defmodule Rvrb.Commands do
   def artist(_args, _params, state) do
     case state.current_track["artists"] do
       artists when is_list(artists) and artists != [] ->
-        rows = for artist <- artists, do: artist_row(AiAnalyzer.analyze(artist))
+        infos = Enum.map(artists, &AiAnalyzer.analyze/1)
 
         table =
-          Html.table(rows, [
+          Html.table(Enum.map(infos, &artist_row/1), [
             {:artist, "Artist"},
             {:genres, "Genres"},
             {:popularity, "Popularity"},
@@ -417,7 +418,7 @@ defmodule Rvrb.Commands do
             {:ai_verdict, "AI spam guess"}
           ])
 
-        chat(table)
+        chat(table <> wikipedia_notes(infos))
 
       _no_track ->
         chat("No track is currently playing.")
@@ -453,6 +454,76 @@ defmodule Rvrb.Commands do
     |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
     |> String.reverse()
   end
+
+  # How long to wait on Wikipedia for one artist. The lookups for a track
+  # go out at once, so it's roughly the whole wait too - and it is a wait
+  # the connection process spends in front of a chat message somebody
+  # asked for, hence a bound at all. An artist Wikipedia didn't answer for
+  # in time simply doesn't get a section.
+  @wikipedia_timeout :timer.seconds(10)
+
+  # What Wikipedia has on each artist, under the table. Artists it has
+  # nothing on - which is most of them - contribute nothing at all, and a
+  # track where that's true of everybody leaves the table exactly as it
+  # was.
+  defp wikipedia_notes(infos) do
+    infos
+    |> Task.async_stream(&controversies(&1.name),
+      timeout: @wikipedia_timeout,
+      on_timeout: :kill_task,
+      ordered: true
+    )
+    |> Enum.flat_map(fn
+      {:ok, %{} = found} -> [found]
+      _nothing_or_timeout -> []
+    end)
+    |> Enum.map_join(&wikipedia_table/1)
+  end
+
+  # These run in tasks linked to the connection process, where a raise
+  # arrives as an exit signal rather than as the exception `run/5` catches
+  # - and an exit signal takes the connection with it. So it's caught in
+  # the task instead, and an artist whose lookup blew up is one missing
+  # section, the same as an artist Wikipedia has nothing on.
+  defp controversies(artist_name) do
+    Wikipedia.controversies(artist_name)
+  rescue
+    error ->
+      log_wikipedia_failure(artist_name, Exception.format(:error, error, __STACKTRACE__))
+  catch
+    kind, reason ->
+      log_wikipedia_failure(artist_name, Exception.format(kind, reason, __STACKTRACE__))
+  end
+
+  defp log_wikipedia_failure(artist_name, formatted) do
+    Logger.warning("Wikipedia lookup for #{artist_name} failed:\n#{formatted}")
+    nil
+  end
+
+  defp wikipedia_table(%{title: title, url: url, passages: passages}) do
+    Html.table(passage_rows(passages), [{:passage, nil}],
+      title: {:safe, wikipedia_title(title, url)}
+    )
+  end
+
+  defp wikipedia_title(title, url) do
+    link = "<a href=\"#{Html.escape(url)}\" target=\"_blank\">#{Html.escape(title)}</a>"
+    "<span class=\"alert\">⚠️ Wikipedia mentions — #{link}</span>"
+  end
+
+  # Consecutive passages from the same article section share one header
+  # row; the lead section (no heading) just gets its rows.
+  defp passage_rows(passages) do
+    passages
+    |> Enum.chunk_by(& &1.section)
+    |> Enum.flat_map(fn [%{section: section} | _rest] = group ->
+      section_row(section) ++
+        Enum.map(group, &%{passage: {:safe, Wikipedia.highlight(&1.text)}})
+    end)
+  end
+
+  defp section_row(nil), do: []
+  defp section_row(section), do: [%{section: section}]
 
   def skip(_args, %{"userId" => user_id}, state) do
     skip_for(User.get(user_id), user_id, state)
