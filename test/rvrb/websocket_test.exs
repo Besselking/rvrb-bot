@@ -332,6 +332,7 @@ defmodule Rvrb.WebSocketTest do
                spotify_track_id: "spotify-1",
                name: "Windowlicker",
                artist_names: ["Aphex Twin"],
+               spotify_artist_ids: ["artist-1"],
                duration_ms: 360_000,
                album_art: "http://art"
              }

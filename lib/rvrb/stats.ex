@@ -235,6 +235,13 @@ defmodule Rvrb.Stats do
       select: %{
         track_name: p.track_name,
         artist_names: p.artist_names,
+        # The group is a name and a cast, not a Spotify id, so one of the
+        # group's ids has to stand for it. Any of them links to the same
+        # track; `max/1` just makes which one deterministic. The artist ids
+        # stay positionally parallel to `artist_names`, since every row in
+        # the group carries that same array.
+        spotify_track_id: max(p.spotify_track_id),
+        spotify_artist_ids: max(p.spotify_artist_ids),
         plays: count(p.id, :distinct),
         dopes: fragment("count(*) filter (where ? = 'dope')", v.vote_type),
         stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)
@@ -260,16 +267,22 @@ defmodule Rvrb.Stats do
         select: %{
           id: p.id,
           artist_names: p.artist_names,
+          spotify_artist_ids: p.spotify_artist_ids,
           dopes: fragment("count(*) filter (where ? = 'dope')", v.vote_type),
           stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)
         }
       )
 
+    # Two unnests in one select list are evaluated in lockstep, so a play's
+    # names and ids come apart as pairs. A play recorded before the ids were
+    # stored has the shorter array padded with nulls, which is exactly the
+    # "no id, no link" case.
     per_artist =
       from(s in subquery(scored),
         select: %{
           play_id: s.id,
           artist_name: fragment("unnest(?)", s.artist_names),
+          artist_id: fragment("unnest(?)", s.spotify_artist_ids),
           dopes: s.dopes,
           stars: s.stars
         }
@@ -281,6 +294,8 @@ defmodule Rvrb.Stats do
       limit: ^limit,
       select: %{
         artist_name: a.artist_name,
+        # Grouped by name, so as with a track: one of the ids stands for it.
+        spotify_artist_id: max(a.artist_id),
         plays: count(a.play_id),
         dopes: sum(a.dopes),
         stars: sum(a.stars)
@@ -305,6 +320,8 @@ defmodule Rvrb.Stats do
         dj: fragment("coalesce(nullif(?, ''), ?)", u.display_name, u.user_name),
         track_name: p.track_name,
         artist_names: p.artist_names,
+        spotify_track_id: p.spotify_track_id,
+        spotify_artist_ids: p.spotify_artist_ids,
         duration_ms: p.duration_ms,
         dopes: fragment("count(*) filter (where ? = 'dope')", v.vote_type),
         stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)

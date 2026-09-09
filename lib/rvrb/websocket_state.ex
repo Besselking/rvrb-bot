@@ -113,10 +113,15 @@ defmodule Rvrb.WebSocket.State do
   defp track_summary(track) when map_size(track) == 0, do: nil
 
   defp track_summary(track) do
+    artists = track["artists"] || []
+
     %{
       spotify_track_id: track["id"],
       name: track["name"],
-      artist_names: Enum.map(track["artists"] || [], & &1["name"]),
+      artist_names: Enum.map(artists, & &1["name"]),
+      # Positionally parallel to `artist_names`, the same way `Rvrb.Play`
+      # stores them, so a reader can pair the two up to link each artist.
+      spotify_artist_ids: Enum.map(artists, & &1["id"]),
       duration_ms: Rvrb.PlayTracker.duration_ms(track),
       album_art: Rvrb.Commands.album_art(track)
     }

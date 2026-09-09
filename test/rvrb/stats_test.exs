@@ -129,6 +129,28 @@ defmodule Rvrb.StatsTest do
                %{track_name: "Once", plays: 1}
              ] = Stats.top_tracks(5)
     end
+
+    test "carries a Spotify id for the track and its artists" do
+      play_fixture(user_fixture(), %{
+        spotify_track_id: "track-1",
+        track_name: "Linked",
+        artist_names: ["One", "Two"],
+        spotify_artist_ids: ["artist-1", "artist-2"]
+      })
+
+      assert [
+               %{
+                 spotify_track_id: "track-1",
+                 spotify_artist_ids: ["artist-1", "artist-2"]
+               }
+             ] = Stats.top_tracks(5)
+    end
+
+    test "leaves the ids nil for a play recorded without them" do
+      play_fixture(user_fixture(), %{spotify_track_id: nil, spotify_artist_ids: []})
+
+      assert [%{spotify_track_id: nil, spotify_artist_ids: []}] = Stats.top_tracks(5)
+    end
   end
 
   describe "top_artists/1" do
@@ -150,6 +172,26 @@ defmodule Rvrb.StatsTest do
              ] = Stats.top_artists(5)
     end
 
+    test "carries each artist's Spotify id, paired with them by position" do
+      play_fixture(user_fixture(), %{
+        artist_names: ["Solo", "Guest"],
+        spotify_artist_ids: ["artist-solo", "artist-guest"]
+      })
+
+      assert [
+               %{artist_name: "Guest", spotify_artist_id: "artist-guest"},
+               %{artist_name: "Solo", spotify_artist_id: "artist-solo"}
+             ] = Stats.top_artists(5) |> Enum.sort_by(& &1.artist_name)
+    end
+
+    # Plays from before the ids were stored still have their names, and the
+    # shorter array pads with nulls rather than dropping the artist.
+    test "still lists an artist from a play that carried no ids" do
+      play_fixture(user_fixture(), %{artist_names: ["Nameless"], spotify_artist_ids: []})
+
+      assert [%{artist_name: "Nameless", spotify_artist_id: nil, plays: 1}] = Stats.top_artists(5)
+    end
+
     test "returns nothing when nothing has been played" do
       assert Stats.top_artists(5) == []
     end
@@ -168,6 +210,17 @@ defmodule Rvrb.StatsTest do
                %{track_name: "Newer", dj: "DJ", played_at: "2026-01-02T12:00:00Z", score: 0},
                %{track_name: "Older", dopes: 1, score: 1}
              ] = Stats.recent_plays(5)
+    end
+
+    test "carries the Spotify ids of the play" do
+      play_fixture(user_fixture(), %{
+        spotify_track_id: "track-1",
+        artist_names: ["One"],
+        spotify_artist_ids: ["artist-1"]
+      })
+
+      assert [%{spotify_track_id: "track-1", spotify_artist_ids: ["artist-1"]}] =
+               Stats.recent_plays(5)
     end
   end
 
