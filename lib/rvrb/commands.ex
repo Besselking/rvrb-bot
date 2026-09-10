@@ -548,6 +548,13 @@ defmodule Rvrb.Commands do
       user_id not in current_djs ->
         chat("You have to be DJing to use \\skip")
 
+      # The head of the queue is the DJ at the decks. Reordering would lift
+      # them out and put them back at position 2 - handing their slot to the
+      # next DJ and burning their one-time skip - when playing right now is
+      # already the best \\skip can do for them.
+      user_id == List.first(current_djs) ->
+        chat("Skipping wont do anything right now.")
+
       true ->
         djs_without = current_djs -- [user_id]
 

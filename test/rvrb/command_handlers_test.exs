@@ -107,6 +107,87 @@ defmodule Rvrb.CommandHandlersTest do
       assert message =~ "I don't know you yet"
       refute_received {:send_message, _}
     end
+
+    test "moves a waiting DJ up to second, behind whoever is at the decks" do
+      user = user_fixture()
+
+      assert {:ok, _state} =
+               handle("\\skip", %{"userId" => user.rvrb_id}, %State{
+                 djs: ["dj-a", "dj-b", user.rvrb_id]
+               })
+
+      assert_received {:send_message, %{method: "updateDjs", params: %{djs: djs}}}
+      assert djs == ["dj-a", user.rvrb_id, "dj-b"]
+      assert_received {:chat, "You're next up!"}
+      assert Rvrb.User.get(user.rvrb_id).received_skip == true
+    end
+
+    # The DJ at the head of the queue is the one currently playing.
+    # Reordering used to lift them out and put them back at position 2,
+    # handing their slot to the next DJ and spending their one skip - and
+    # `updateChannelDjs` tells new DJs to use \skip when they're ready.
+    test "leaves the DJ at the decks where they are, and keeps their skip" do
+      user = user_fixture()
+
+      assert {:ok, _state} =
+               handle("\\skip", %{"userId" => user.rvrb_id}, %State{
+                 djs: [user.rvrb_id, "dj-b", "dj-c"]
+               })
+
+      refute_received {:send_message, _}
+      assert_received {:chat, "Skipping wont do anything right now."}
+      assert Rvrb.User.get(user.rvrb_id).received_skip != true
+    end
+
+    test "is a no-op for the only DJ in the room" do
+      user = user_fixture()
+
+      assert {:ok, _state} =
+               handle("\\skip", %{"userId" => user.rvrb_id}, %State{djs: [user.rvrb_id]})
+
+      refute_received {:send_message, _}
+      assert_received {:chat, "Skipping wont do anything right now."}
+      assert Rvrb.User.get(user.rvrb_id).received_skip != true
+    end
+
+    test "is a no-op for a DJ already second in line" do
+      user = user_fixture()
+
+      assert {:ok, _state} =
+               handle("\\skip", %{"userId" => user.rvrb_id}, %State{
+                 djs: ["dj-a", user.rvrb_id, "dj-c"]
+               })
+
+      refute_received {:send_message, _}
+      assert_received {:chat, "Skipping wont do anything right now."}
+      assert Rvrb.User.get(user.rvrb_id).received_skip != true
+    end
+
+    test "turns away a DJ who has already had their skip" do
+      user = user_fixture()
+      Rvrb.User.update_received_skip(user)
+
+      assert {:ok, _state} =
+               handle("\\skip", %{"userId" => user.rvrb_id}, %State{
+                 djs: ["dj-a", "dj-b", user.rvrb_id]
+               })
+
+      refute_received {:send_message, _}
+      assert_received {:chat, message}
+      assert message =~ "already received a skip"
+    end
+
+    test "turns away someone who isn't DJing" do
+      user = user_fixture()
+
+      assert {:ok, _state} =
+               handle("\\skip", %{"userId" => user.rvrb_id}, %State{djs: ["dj-a", "dj-b"]})
+
+      refute_received {:send_message, _}
+      assert_received {:chat, message}
+      assert message =~ "have to be DJing"
+      assert Rvrb.User.get(user.rvrb_id).received_skip != true
+    end
   end
 
   describe "dispatch" do
