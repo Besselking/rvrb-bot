@@ -88,8 +88,16 @@ defmodule Rvrb.AutoVote do
   The RVRB ids of the bots in an `updateChannelUsers` `users` payload.
   RVRB marks them with `"type" => "bot"`; everyone else carries no `type`
   at all.
+
+  Called from the connection process, outside `Commands.run/5`'s net and
+  outside the guard around the database write next to it - so an entry it
+  can't read costs us that entry, the same way `User.update_users/1` drops
+  a user it can't parse, rather than raising and dropping the connection
+  with the track queue and the DJ list on it.
   """
-  def bot_ids(users) do
-    for user <- users, user["type"] == "bot", into: MapSet.new(), do: user["_id"]
+  def bot_ids(users) when is_list(users) do
+    for user <- users, is_map(user), user["type"] == "bot", into: MapSet.new(), do: user["_id"]
   end
+
+  def bot_ids(_not_a_list), do: MapSet.new()
 end

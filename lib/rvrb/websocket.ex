@@ -228,7 +228,11 @@ defmodule Rvrb.WebSocket do
     {:reply, {:text, keepAwake_message}, state}
   end
 
-  def handle_message(%{"method" => "updateChannelUsers", "params" => params}, state) do
+  # `is_map/1` because everything below reads `params` by key: a push whose
+  # `params` isn't an object at all falls through to the catch-all clause
+  # instead of raising its way out of the connection process.
+  def handle_message(%{"method" => "updateChannelUsers", "params" => params}, state)
+      when is_map(params) do
     Logger.debug("updateChannelUsers! #{params["type"]}")
 
     users = params["users"] || []
@@ -415,9 +419,6 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
-  # Casts or retracts the automatic dope/star to match the room as we
-  # currently know it: the votes from the last meter, against the DJs whose
-  # votes count right now. Safe to call on any event that moves either.
   # The write happens here on the connection process, outside the
   # `Commands.run/5` net. Losing a push's user records costs us their stats
   # and display names; letting the failure through would cost the connection
@@ -441,6 +442,9 @@ defmodule Rvrb.WebSocket do
       []
   end
 
+  # Casts or retracts the automatic dope/star to match the room as we
+  # currently know it: the votes from the last meter, against the DJs whose
+  # votes count right now. Safe to call on any event that moves either.
   defp refresh_auto_votes(state) do
     djs = AutoVote.deciding_djs(state.djs, state.bots)
 

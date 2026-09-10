@@ -203,6 +203,62 @@ defmodule Rvrb.WebSocketTest do
 
       assert state.bots == MapSet.new(["bot-1"])
     end
+
+    # The database write is wrapped, but `AutoVote.bot_ids/1` ran after it
+    # and outside that wrapper - so a `users` payload it couldn't read
+    # raised its way out of `handle_message/2` and dropped the connection,
+    # taking the track queue, the DJ list and the current track with it.
+    for {label, users} <- [
+          {"a list of strings", ["not-a-user"]},
+          {"a list of nils", [nil]},
+          {"a map instead of a list", %{"a" => 1}},
+          {"a bare string", "nope"},
+          {"a list of lists", [[1, 2]]}
+        ] do
+      test "survives a users payload that is #{label}" do
+        assert {:ok, %State{} = state} =
+                 handle(
+                   %{
+                     "method" => "updateChannelUsers",
+                     "params" => %{"users" => unquote(Macro.escape(users))}
+                   },
+                   %State{}
+                 )
+
+        assert state.bots == MapSet.new()
+      end
+    end
+
+    test "keeps the readable users when the same push carries junk" do
+      users = [
+        "junk",
+        %{
+          "_id" => "bot-1",
+          "userName" => "b",
+          "type" => "bot",
+          "createdDate" => "2024-01-01T00:00:00.000Z"
+        },
+        %{"_id" => "user-1", "userName" => "u", "createdDate" => "2024-01-01T00:00:00.000Z"}
+      ]
+
+      assert {:ok, state} =
+               handle(
+                 %{"method" => "updateChannelUsers", "params" => %{"users" => users}},
+                 %State{}
+               )
+
+      assert state.bots == MapSet.new(["bot-1"])
+    end
+
+    # Everything in the handler reads `params` by key, starting with the
+    # log line, so a push whose params isn't an object has to fall through
+    # rather than raise.
+    test "falls through to the catch-all when params isn't a map" do
+      for params <- ["a string", 42, nil, [1, 2]] do
+        assert {:ok, %State{}} =
+                 handle(%{"method" => "updateChannelUsers", "params" => params}, %State{})
+      end
+    end
   end
 
   describe "updateChannelDjs" do
