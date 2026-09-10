@@ -99,5 +99,27 @@ defmodule Rvrb.AutoVoteTest do
 
       assert AutoVote.bot_ids(users) == MapSet.new(["bot-1"])
     end
+
+    # This runs on the connection process, next to - but outside - the
+    # guard around the user write, so an entry it can't read has to cost
+    # that entry rather than the socket.
+    test "skips entries that aren't user objects, and still finds the bots" do
+      users = [
+        "not a user",
+        nil,
+        %{"_id" => "bot-1", "type" => "bot"},
+        %{"_id" => "user-1", "userName" => "Bess"},
+        %{"_id" => "bot-2", "type" => "bot"}
+      ]
+
+      assert AutoVote.bot_ids(users) == MapSet.new(["bot-1", "bot-2"])
+    end
+
+    test "is empty for a payload that isn't a list at all" do
+      assert AutoVote.bot_ids("nope") == MapSet.new()
+      assert AutoVote.bot_ids(%{"users" => []}) == MapSet.new()
+      assert AutoVote.bot_ids(nil) == MapSet.new()
+      assert AutoVote.bot_ids([]) == MapSet.new()
+    end
   end
 end
