@@ -1,6 +1,8 @@
 defmodule Rvrb.UserTest do
   use Rvrb.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias Rvrb.User
 
   # The shape RVRB sends in a `updateChannelUsers`-style payload.
@@ -63,6 +65,41 @@ defmodule Rvrb.UserTest do
     test "handles a user with no display name or country" do
       assert [_] = User.update_users([payload("a", %{"displayName" => nil, "country" => nil})])
       assert %User{display_name: nil, country: nil} = User.get("a")
+    end
+
+    # This runs on the connection process, outside `Commands.run/5`'s net,
+    # so a `createdDate` we can't parse used to raise its way up through
+    # `handle_message/2` and drop the connection - losing the track queue,
+    # the DJ list and the current track over one bad field.
+    test "drops a user whose createdDate we can't parse, and keeps the rest" do
+      unusable = [
+        Map.delete(payload("missing"), "createdDate"),
+        payload("nil-date", %{"createdDate" => nil}),
+        payload("date-only", %{"createdDate" => "2020-01-01"}),
+        payload("nonsense", %{"createdDate" => "not a date"}),
+        payload("wrong-type", %{"createdDate" => 1_234_567})
+      ]
+
+      assert capture_log(fn ->
+               assert [%User{rvrb_id: "a"}] = User.update_users(unusable ++ [payload("a")])
+             end) =~ "createdDate"
+
+      assert %User{user_name: "user-a"} = User.get("a")
+
+      for id <- ["missing", "nil-date", "date-only", "nonsense", "wrong-type"] do
+        assert User.get(id) == nil
+      end
+    end
+
+    test "touches nothing when no user in the push is usable" do
+      user_fixture(%{rvrb_id: "untouched"})
+
+      assert capture_log(fn ->
+               assert User.update_users([payload("a", %{"createdDate" => "nope"})]) == []
+             end) =~ "createdDate"
+
+      assert User.get("a") == nil
+      assert %User{} = User.get("untouched")
     end
   end
 

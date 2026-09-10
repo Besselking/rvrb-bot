@@ -219,7 +219,7 @@ defmodule Rvrb.WebSocket do
 
     users = params["users"] || []
 
-    Rvrb.User.update_users(users)
+    store_users(users)
 
     # Accumulated rather than replaced: a push carries whoever it carries,
     # and a bot doesn't stop being one by not being mentioned again.
@@ -404,6 +404,29 @@ defmodule Rvrb.WebSocket do
   # Casts or retracts the automatic dope/star to match the room as we
   # currently know it: the votes from the last meter, against the DJs whose
   # votes count right now. Safe to call on any event that moves either.
+  # The write happens here on the connection process, outside the
+  # `Commands.run/5` net. Losing a push's user records costs us their stats
+  # and display names; letting the failure through would cost the connection
+  # and everything it holds - the track queue, the DJ list, the current
+  # track. Exits too: `Rvrb.Repo` calls into a pool that can be down.
+  defp store_users(users) do
+    Rvrb.User.update_users(users)
+  rescue
+    error ->
+      Logger.error(
+        "updateChannelUsers write failed:\n#{Exception.format(:error, error, __STACKTRACE__)}"
+      )
+
+      []
+  catch
+    kind, reason ->
+      Logger.error(
+        "updateChannelUsers write failed:\n#{Exception.format(kind, reason, __STACKTRACE__)}"
+      )
+
+      []
+  end
+
   defp refresh_auto_votes(state) do
     djs = AutoVote.deciding_djs(state.djs, state.bots)
 

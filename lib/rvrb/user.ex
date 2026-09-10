@@ -3,6 +3,8 @@ defmodule Rvrb.User do
 
   import Ecto.Query
 
+  require Logger
+
   schema "users" do
     field(:rvrb_id, :string)
     field(:user_name, :string)
@@ -64,23 +66,43 @@ defmodule Rvrb.User do
   def update_users([]), do: []
 
   def update_users(users) do
-    repo_users =
-      Enum.map(
-        users,
-        &%{
-          rvrb_id: &1["_id"],
-          user_name: &1["userName"],
-          display_name: Map.get(&1, "displayName"),
-          country: Map.get(&1, "country"),
-          created_date:
-            &1["createdDate"]
-            |> NaiveDateTime.from_iso8601!()
-            |> NaiveDateTime.truncate(:second)
-        }
-      )
-
-    upsert(repo_users)
+    case Enum.flat_map(users, &to_repo_user/1) do
+      [] -> []
+      repo_users -> upsert(repo_users)
+    end
   end
+
+  # This runs on the connection process, outside `Commands.run/5`'s net, and
+  # a push carries whoever it carries: one user RVRB sends us with a missing
+  # or malformed `createdDate` must cost us that user, not the whole batch
+  # and certainly not the socket. So drop them and keep the rest.
+  defp to_repo_user(user) do
+    case parse_created_date(user["createdDate"]) do
+      nil ->
+        Logger.warning("skipping user with unusable createdDate: #{inspect(user)}")
+        []
+
+      created_date ->
+        [
+          %{
+            rvrb_id: user["_id"],
+            user_name: user["userName"],
+            display_name: Map.get(user, "displayName"),
+            country: Map.get(user, "country"),
+            created_date: created_date
+          }
+        ]
+    end
+  end
+
+  defp parse_created_date(created_date) when is_binary(created_date) do
+    case NaiveDateTime.from_iso8601(created_date) do
+      {:ok, naive} -> NaiveDateTime.truncate(naive, :second)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp parse_created_date(_missing), do: nil
 
   defp upsert(users) do
     ids = Enum.map(users, & &1.rvrb_id)
