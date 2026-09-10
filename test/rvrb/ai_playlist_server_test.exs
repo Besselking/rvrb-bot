@@ -3,8 +3,6 @@ defmodule Rvrb.AiPlaylistServerTest do
 
   import ExUnit.CaptureLog
 
-  require Logger
-
   alias Rvrb.AiPlaylistServer
 
   @slop "1VX1plT2A6rwob0SwuEkvH"

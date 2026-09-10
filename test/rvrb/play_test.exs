@@ -66,9 +66,22 @@ defmodule Rvrb.PlayTest do
       for _ <- 1..4, do: vote_fixture(four_dopes, user_fixture(), "dope")
       vote_fixture(one_star, user_fixture(), "star")
 
-      # A 4-1 tie either way, so both of these are legitimate winners; what
-      # matters is that the two arrive at the same score.
-      assert %{score: 4} = Play.best_play(user.id)
+      # A 4-1 tie either way, so what matters is that the two arrive at the
+      # same score. Postgres ranks these now, and ties break toward the
+      # older play, so which one wins is fixed rather than incidental.
+      assert %{track_name: "Four dopes", score: 4} = Play.best_play(user.id)
+    end
+
+    test "breaks a tie toward the older play, so a repeat \\stats agrees" do
+      user = user_fixture()
+      first = play_fixture(user, %{track_name: "First"})
+      second = play_fixture(user, %{track_name: "Second"})
+
+      vote_fixture(first, user_fixture(), "star")
+      vote_fixture(second, user_fixture(), "star")
+
+      assert %{track_name: "First", score: 4} = Play.best_play(user.id)
+      assert Play.best_play(user.id) == Play.best_play(user.id)
     end
 
     test "sums dopes and stars cast by different listeners on one play" do
@@ -131,6 +144,21 @@ defmodule Rvrb.PlayTest do
 
       assert %{artist_name: "Mine", play_count: 1} = Play.most_played_artist(user.id)
     end
+
+    test "breaks a tie on name, so a repeat \\stats agrees" do
+      user = user_fixture()
+      play_fixture(user, %{artist_names: ["Zebra"]})
+      play_fixture(user, %{artist_names: ["Aardvark"]})
+
+      assert %{artist_name: "Aardvark", play_count: 1} = Play.most_played_artist(user.id)
+    end
+
+    test "skips a play recorded with no artists at all" do
+      user = user_fixture()
+      play_fixture(user, %{artist_names: []})
+
+      assert Play.most_played_artist(user.id) == nil
+    end
   end
 
   describe "best_artist/1" do
@@ -157,6 +185,17 @@ defmodule Rvrb.PlayTest do
       play_fixture(user, %{artist_names: ["Only One"]})
 
       assert %{artist_name: "Only One", score: 0} = Play.best_artist(user.id)
+    end
+
+    test "breaks a tie on name, so a repeat \\stats agrees" do
+      user = user_fixture()
+      zebra = play_fixture(user, %{artist_names: ["Zebra"]})
+      aardvark = play_fixture(user, %{artist_names: ["Aardvark"]})
+
+      vote_fixture(zebra, user_fixture(), "star")
+      vote_fixture(aardvark, user_fixture(), "star")
+
+      assert %{artist_name: "Aardvark", score: 4} = Play.best_artist(user.id)
     end
   end
 

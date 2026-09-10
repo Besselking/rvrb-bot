@@ -1,6 +1,7 @@
 defmodule Rvrb.StatsTest do
   use Rvrb.DataCase, async: true
 
+  alias Rvrb.Play
   alias Rvrb.Stats
 
   describe "totals/0" do
@@ -150,6 +151,27 @@ defmodule Rvrb.StatsTest do
       play_fixture(user_fixture(), %{spotify_track_id: nil, spotify_artist_ids: []})
 
       assert [%{spotify_track_id: nil, spotify_artist_ids: []}] = Stats.top_tracks(5)
+    end
+  end
+
+  # Both modules used to carry their own `@star_points` / `@dope_points`,
+  # with only a comment holding them together - change one and the status
+  # page would quietly disagree with the chat command. `Rvrb.Play` owns the
+  # scale now; this is the assertion that says so.
+  describe "scoring agrees with Rvrb.Play" do
+    test "the same play scores the same on the status page and in \\stats" do
+      dj = user_fixture()
+      play = play_fixture(dj, %{track_name: "Agreed", artist_names: ["A"]})
+
+      vote_fixture(play, user_fixture(), "star")
+      vote_fixture(play, user_fixture(), "dope")
+      vote_fixture(play, user_fixture(), "dope")
+
+      assert [%{track_name: "Agreed", score: from_stats}] = Stats.top_tracks()
+      assert %{track_name: "Agreed", score: from_command} = Play.best_play(dj.id)
+
+      assert from_stats == from_command
+      assert from_stats == Play.score(%{stars: 1, dopes: 2})
     end
   end
 

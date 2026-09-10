@@ -28,9 +28,6 @@ defmodule Rvrb.Stats do
   alias Rvrb.Rotation
   alias Rvrb.User
 
-  @star_points 4
-  @dope_points 1
-
   # How many rows the leaderboards and the recent-plays list carry, and how
   # far back the per-day counts go. Enough to fill a page without turning a
   # status check into a table dump.
@@ -336,16 +333,15 @@ defmodule Rvrb.Stats do
     from(p in Play, select: %{artist_name: fragment("distinct unnest(?)", p.artist_names)})
   end
 
-  # Scored the same way `Rvrb.Play` scores a play, so a number here and a
-  # number in `\stats` mean the same thing. `sum/1` hands back a Decimal
-  # (or nil, for an artist nobody voted on), which has to become an
-  # integer before it goes over the wire.
+  # Scored by `Rvrb.Play.score/1` rather than by a second copy of the
+  # scale, so a number here and a number in `\stats` can't drift apart.
+  # `sum/1` hands back a Decimal (or nil, for an artist nobody voted on),
+  # which has to become an integer first - both to score with and to go
+  # over the wire.
   defp with_score(counts) do
-    dopes = to_integer(counts.dopes)
-    stars = to_integer(counts.stars)
+    counts = %{counts | dopes: to_integer(counts.dopes), stars: to_integer(counts.stars)}
 
-    %{counts | dopes: dopes, stars: stars}
-    |> Map.put(:score, stars * @star_points + dopes * @dope_points)
+    Map.put(counts, :score, Play.score(counts))
   end
 
   defp to_integer(nil), do: 0

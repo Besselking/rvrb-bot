@@ -19,6 +19,14 @@ defmodule Rvrb.CommandsTest do
       assert Commands.parse("\\djs") == {:ok, "djs", ""}
     end
 
+    # `String.trim_leading/2` used to take *all* the leading backslashes
+    # off, so `\\help` ran `\help`. One prefix comes off now, and a doubled
+    # one is a typo the dispatcher reports as unknown.
+    test "strips exactly one prefix" do
+      assert Commands.parse("\\\\help") == {:ok, "\\help", ""}
+      assert Commands.parse("\\\\\\qg rock") == {:ok, "\\\\qg", "rock"}
+    end
+
     test "parses a command with a single argument" do
       assert Commands.parse("\\qg rock") == {:ok, "qg", "rock"}
     end
