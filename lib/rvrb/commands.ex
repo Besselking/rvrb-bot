@@ -120,18 +120,19 @@ defmodule Rvrb.Commands do
   `:error` if `payload` isn't a command.
   """
   def parse(payload) when is_binary(payload) do
-    trimmed = String.trim(payload)
+    # Exactly one prefix comes off, rather than `String.trim_leading/2`'s
+    # all of them - `\\help` is a typo for `\help`, not a way to run it.
+    case String.trim(payload) do
+      @prefix <> rest ->
+        rest
+        |> String.split(" ", parts: 2)
+        |> case do
+          [name] -> {:ok, String.downcase(name), ""}
+          [name, args] -> {:ok, String.downcase(name), String.trim(args)}
+        end
 
-    if String.starts_with?(trimmed, @prefix) do
-      trimmed
-      |> String.trim_leading(@prefix)
-      |> String.split(" ", parts: 2)
-      |> case do
-        [name] -> {:ok, String.downcase(name), ""}
-        [name, args] -> {:ok, String.downcase(name), String.trim(args)}
-      end
-    else
-      :error
+      _not_a_command ->
+        :error
     end
   end
 
@@ -556,14 +557,10 @@ defmodule Rvrb.Commands do
         chat("Skipping wont do anything right now.")
 
       true ->
-        djs_without = current_djs -- [user_id]
-
-        reordered =
-          case djs_without do
-            [] -> [user_id]
-            [current_dj] -> [current_dj, user_id]
-            [current_dj | rest] -> [current_dj, user_id | rest]
-          end
+        # Everyone before this point is either not in the queue at all or
+        # at its head, so there is always a DJ left to slot in behind.
+        [current_dj | rest] = current_djs -- [user_id]
+        reordered = [current_dj, user_id | rest]
 
         if reordered == current_djs do
           chat("Skipping wont do anything right now.")

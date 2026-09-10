@@ -68,12 +68,8 @@ defmodule Rvrb.WebSocket do
           |> Enum.map(fn artist -> artist["name"] end)
           |> Enum.join(", ")
 
-        smallest_image_url =
-          (track.album["images"]
-           |> Enum.min_by(& &1["width"]))["url"]
-
         %{
-          image: {:safe, "<img src=\"#{Html.escape(smallest_image_url)}\"/>"},
+          image: image_cell(smallest_image_url(track.album)),
           name: track.name,
           artist: artists
         }
@@ -83,6 +79,24 @@ defmodule Rvrb.WebSocket do
 
     chat("current queue:" <> table)
   end
+
+  @doc """
+  The url of the smallest cover image on `album`, or nil when there isn't
+  one to show.
+
+  `Enum.min_by/2` raises `Enum.EmptyError` on `[]`, and an album with no
+  images is rare but real - a missing thumbnail shouldn't cost the whole
+  `\\queue` table. Public for the same reason as `Commands.album_art/1`:
+  it's the part worth testing without a socket.
+  """
+  def smallest_image_url(%{"images" => [_ | _] = images}) do
+    images |> Enum.min_by(& &1["width"]) |> Map.get("url")
+  end
+
+  def smallest_image_url(_no_images), do: nil
+
+  defp image_cell(nil), do: ""
+  defp image_cell(url), do: {:safe, "<img src=\"#{Html.escape(url)}\"/>"}
 
   @doc """
   The connection's live view of the room - see `Rvrb.WebSocket.State.snapshot/1`

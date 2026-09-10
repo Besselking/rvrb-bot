@@ -181,6 +181,21 @@ defmodule Rvrb.Play do
       on: v.play_id == p.id,
       where: p.user_id == ^user_id,
       group_by: p.id,
+      # Ranked in Postgres rather than by loading every play the user has
+      # ever spun and sorting in Elixir - the socket process waits on this.
+      # Oldest play breaks a tie, so a repeat `\stats` gives the same answer.
+      order_by: [
+        desc:
+          fragment(
+            "count(*) filter (where ? = 'star') * ? + count(*) filter (where ? = 'dope') * ?",
+            v.vote_type,
+            ^@star_points,
+            v.vote_type,
+            ^@dope_points
+          ),
+        asc: p.id
+      ],
+      limit: 1,
       select: %{
         track_name: p.track_name,
         artist_names: p.artist_names,
@@ -188,9 +203,11 @@ defmodule Rvrb.Play do
         stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)
       }
     )
-    |> Rvrb.Repo.all()
-    |> Enum.map(&with_score/1)
-    |> Enum.max_by(& &1.score, fn -> nil end)
+    |> Rvrb.Repo.one()
+    |> case do
+      nil -> nil
+      play -> with_score(play)
+    end
   end
 
   @doc """
@@ -199,15 +216,21 @@ defmodule Rvrb.Play do
   toward each), or nil if they've never played anything.
   """
   def most_played_artist(user_id) do
-    from(p in Rvrb.Play, where: p.user_id == ^user_id, select: p.artist_names)
-    |> Rvrb.Repo.all()
-    |> List.flatten()
-    |> Enum.frequencies()
-    |> Enum.max_by(fn {_artist, count} -> count end, fn -> nil end)
-    |> case do
-      nil -> nil
-      {artist_name, play_count} -> %{artist_name: artist_name, play_count: play_count}
-    end
+    # Counted in Postgres rather than by loading every play and tallying in
+    # Elixir. Name breaks a tie, so a repeat `\stats` gives the same answer.
+    per_artist =
+      from(p in Rvrb.Play,
+        where: p.user_id == ^user_id,
+        select: %{artist_name: fragment("unnest(?)", p.artist_names)}
+      )
+
+    from(a in subquery(per_artist),
+      group_by: a.artist_name,
+      order_by: [desc: count(a.artist_name), asc: a.artist_name],
+      limit: 1,
+      select: %{artist_name: a.artist_name, play_count: count(a.artist_name)}
+    )
+    |> Rvrb.Repo.one()
   end
 
   @doc """
@@ -217,21 +240,31 @@ defmodule Rvrb.Play do
   anything.
   """
   def best_artist(user_id) do
-    from(p in Rvrb.Play,
-      left_join: v in Rvrb.PlayVote,
-      on: v.play_id == p.id,
-      where: p.user_id == ^user_id,
-      group_by: p.id,
-      select: %{
-        artist_names: p.artist_names,
-        dopes: fragment("count(*) filter (where ? = 'dope')", v.vote_type),
-        stars: fragment("count(*) filter (where ? = 'star')", v.vote_type)
-      }
+    # Scored per play first, then exploded: unnesting before the votes are
+    # counted would multiply every vote by the number of artists on the
+    # track. Same shape as `Rvrb.Stats.top_artists/1`, and same reason.
+    scored =
+      from(p in Rvrb.Play,
+        left_join: v in Rvrb.PlayVote,
+        on: v.play_id == p.id,
+        where: p.user_id == ^user_id,
+        group_by: p.id,
+        select: %{
+          artist_names: p.artist_names,
+          score:
+            fragment(
+              "count(*) filter (where ? = 'star') * ? + count(*) filter (where ? = 'dope') * ?",
+              v.vote_type,
+              ^@star_points,
+              v.vote_type,
+              ^@dope_points
+            )
+        }
+      )
+
+    from(s in subquery(scored),
+      select: %{artist_name: fragment("unnest(?)", s.artist_names), score: s.score}
     )
-    |> Rvrb.Repo.all()
-    |> Enum.flat_map(fn play ->
-      Enum.map(play.artist_names, &{&1, score(play)})
-    end)
     |> top_artist_by_score()
   end
 
@@ -290,16 +323,31 @@ defmodule Rvrb.Play do
   starred anything.
   """
   def favorite_artist(user_id) do
-    from(v in Rvrb.PlayVote,
-      join: p in Rvrb.Play,
-      on: v.play_id == p.id,
-      where: ^votes_given_by(user_id),
-      select: %{artist_names: p.artist_names, vote_type: v.vote_type}
+    # `votes_given_by/1` has already narrowed this to the scoring types, so
+    # the `else` arm is the dope case rather than a catch-all. The points
+    # are the only thing in the branch, so they need `type/2` to tell
+    # Postgres what they are - it infers text for a bare parameter, and the
+    # sum outside then has nothing to add up.
+    scored =
+      from(v in Rvrb.PlayVote,
+        join: p in Rvrb.Play,
+        on: v.play_id == p.id,
+        where: ^votes_given_by(user_id),
+        select: %{
+          artist_names: p.artist_names,
+          score:
+            fragment(
+              "case when ? = 'star' then ? else ? end",
+              v.vote_type,
+              type(^@star_points, :integer),
+              type(^@dope_points, :integer)
+            )
+        }
+      )
+
+    from(s in subquery(scored),
+      select: %{artist_name: fragment("unnest(?)", s.artist_names), score: s.score}
     )
-    |> Rvrb.Repo.all()
-    |> Enum.flat_map(fn vote ->
-      Enum.map(vote.artist_names, &{&1, vote_points(vote.vote_type)})
-    end)
     |> top_artist_by_score()
   end
 
@@ -316,21 +364,36 @@ defmodule Rvrb.Play do
 
   defp with_score(counts), do: Map.put(counts, :score, score(counts))
 
-  defp score(%{stars: stars, dopes: dopes}), do: stars * @star_points + dopes * @dope_points
+  @doc """
+  What a play with `stars` and `dopes` on it is worth: a star counts for
+  #{@star_points} points, a dope for #{@dope_points}.
 
-  defp vote_points("star"), do: @star_points
-  defp vote_points("dope"), do: @dope_points
-  defp vote_points(_), do: 0
+  Public because this module owns the scale. `Rvrb.Stats` scores the same
+  rows for the status page and calls through to here, so a number there
+  and a number in `\\stats` can't drift apart.
+  """
+  def score(%{stars: stars, dopes: dopes}), do: stars * @star_points + dopes * @dope_points
 
-  defp top_artist_by_score(artist_scores) do
-    artist_scores
-    |> Enum.reduce(%{}, fn {artist, score}, acc ->
-      Map.update(acc, artist, score, &(&1 + score))
-    end)
-    |> Enum.max_by(fn {_artist, score} -> score end, fn -> nil end)
+  # Takes a query of `%{artist_name, score}` rows - one per artist per play
+  # - and returns the artist with the highest total, or nil for no rows at
+  # all. Summed and ranked in Postgres: the socket process waits on this,
+  # and the row count grows with every play and every vote. Name breaks a
+  # tie, so a repeat `\stats` gives the same answer.
+  defp top_artist_by_score(per_artist) do
+    from(a in subquery(per_artist),
+      group_by: a.artist_name,
+      order_by: [desc: sum(a.score), asc: a.artist_name],
+      limit: 1,
+      select: %{artist_name: a.artist_name, score: sum(a.score)}
+    )
+    |> Rvrb.Repo.one()
     |> case do
       nil -> nil
-      {artist_name, score} -> %{artist_name: artist_name, score: score}
+      artist -> %{artist | score: to_integer(artist.score)}
     end
   end
+
+  # Postgres' sum() over an integer column comes back as a Decimal.
+  defp to_integer(%Decimal{} = score), do: Decimal.to_integer(score)
+  defp to_integer(score) when is_integer(score), do: score
 end

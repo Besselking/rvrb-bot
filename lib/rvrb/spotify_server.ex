@@ -22,9 +22,10 @@ defmodule Rvrb.SpotifyServer do
   defp get_state, do: Agent.get(CredStore, & &1)
 
   defp put_creds(creds) do
-    expires_at = System.monotonic_time(:second) + @token_ttl_seconds
-    Agent.update(CredStore, &%{&1 | credentials: creds, expires_at: expires_at})
+    Agent.update(CredStore, &%{&1 | credentials: creds, expires_at: expires_at()})
   end
+
+  defp expires_at, do: System.monotonic_time(:second) + @token_ttl_seconds
 
   defp fresh?(%{expires_at: nil}), do: false
   defp fresh?(%{expires_at: expires_at}), do: System.monotonic_time(:second) < expires_at
@@ -44,9 +45,18 @@ defmodule Rvrb.SpotifyServer do
     auth |> body_params() |> Spotify.AuthenticationClient.post()
   end
 
+  # A token POST is a network round trip, so the Agent is blocked for the
+  # duration of a refresh - which is the point, but it means the default
+  # 5s call timeout is too tight to be the thing that decides.
+  @refresh_timeout_ms 30_000
+
   @doc """
   Returns cached Spotify credentials, only requesting a new token when we
   don't have one yet or the cached one has (likely) expired.
+
+  A fresh token is read straight out of the `Agent`. A refresh runs *in*
+  it, so concurrent callers queue behind one POST instead of each firing
+  their own and racing to overwrite the result.
   """
   def get_auth() do
     state = get_state()
@@ -54,11 +64,43 @@ defmodule Rvrb.SpotifyServer do
     if fresh?(state) do
       state.credentials
     else
-      {:ok, new_creds} = authenticate(state.credentials)
-      # make sure to persist the credentials for later!
-      put_creds(new_creds)
-      new_creds
+      refresh_creds()
     end
+  end
+
+  defp refresh_creds do
+    case Agent.get_and_update(CredStore, &refresh_in_agent/1, @refresh_timeout_ms) do
+      {:ok, credentials} ->
+        credentials
+
+      # Raised out here rather than in the Agent: this runs in the Agent
+      # process, so letting Spotify being down throw would take the token
+      # store down with it - and every other caller's cached token with
+      # that. The caller raising is what happened before, and inside a
+      # command that's `Commands.run/5`'s to contain.
+      {:error, reason} ->
+        raise "Spotify token refresh failed: #{inspect(reason)}"
+    end
+  end
+
+  defp refresh_in_agent(state) do
+    # Re-checked inside: whoever we queued behind may have just done this,
+    # and their token is as good as one we'd fetch ourselves.
+    if fresh?(state) do
+      {{:ok, state.credentials}, state}
+    else
+      case authenticate(state.credentials) do
+        {:ok, new_creds} ->
+          {{:ok, new_creds}, %{state | credentials: new_creds, expires_at: expires_at()}}
+
+        other ->
+          {{:error, other}, state}
+      end
+    end
+  rescue
+    error -> {{:error, error}, state}
+  catch
+    kind, reason -> {{:error, Exception.format(kind, reason, __STACKTRACE__)}, state}
   end
 
   @doc "Use the credentials to access the Spotify API through the library"

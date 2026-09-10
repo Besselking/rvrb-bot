@@ -44,6 +44,30 @@ defmodule Rvrb.WebSocketTest do
     end)
   end
 
+  describe "smallest_image_url/1" do
+    test "picks the smallest of the album's images" do
+      album = %{
+        "images" => [
+          %{"width" => 640, "url" => "big.jpg"},
+          %{"width" => 64, "url" => "tiny.jpg"},
+          %{"width" => 300, "url" => "medium.jpg"}
+        ]
+      }
+
+      assert WebSocket.smallest_image_url(album) == "tiny.jpg"
+    end
+
+    # `Enum.min_by/2` raises `Enum.EmptyError` here, which `Commands.run/5`
+    # would contain - but `\\queue` would fail for the whole room over one
+    # album with no cover art.
+    test "returns nil rather than raising for an album with no images" do
+      assert WebSocket.smallest_image_url(%{"images" => []}) == nil
+      assert WebSocket.smallest_image_url(%{}) == nil
+      assert WebSocket.smallest_image_url(%{"images" => nil}) == nil
+      assert WebSocket.smallest_image_url(nil) == nil
+    end
+  end
+
   describe "nextChannelTrack" do
     test "answers the RPC with an error when the queue is empty" do
       state = %State{queue: []}

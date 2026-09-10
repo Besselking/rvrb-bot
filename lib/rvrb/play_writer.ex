@@ -82,12 +82,25 @@ defmodule Rvrb.PlayWriter do
   # A write failing (Postgres down, a row a foreign key doesn't like) costs
   # this play's stats and nothing else - it must not take the process down
   # with it, since a restart would also lose `current_play_id` and orphan
-  # the rest of the track's votes.
+  # the rest of the track's votes. Exits as well as raises, then: `Repo`
+  # calls into a connection pool that can be down or time out, and those
+  # arrive as exit signals rather than as exceptions - the same pair
+  # `Commands.run/5` catches for the socket.
   defp guard(what, fun) do
     fun.()
   rescue
     error ->
-      Logger.error("PlayWriter #{what} failed: #{Exception.message(error)}")
+      Logger.error(
+        "PlayWriter #{what} failed:\n#{Exception.format(:error, error, __STACKTRACE__)}"
+      )
+
+      nil
+  catch
+    kind, reason ->
+      Logger.error(
+        "PlayWriter #{what} failed:\n#{Exception.format(kind, reason, __STACKTRACE__)}"
+      )
+
       nil
   end
 end

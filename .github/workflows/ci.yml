@@ -82,7 +82,12 @@ jobs:
       - run: mix compile --warnings-as-errors
 
       - run: mix format --check-formatted
-      - run: mix test
+
+      # `mix compile` above only covers `lib` and `test/support` (see
+      # `elixirc_paths/1` in mix.exs), so warnings in the test files
+      # themselves reach nobody. `mix test` compiles those, and the flag
+      # makes them fail the build the same way.
+      - run: mix test --warnings-as-errors
   # Nothing else here looks at flake.nix, so an upstream nixpkgs change -
   # the mix builders dropping their `elixir` argument, say - otherwise
   # surfaces on somebody's deploy rather than in CI. Evaluating is enough
