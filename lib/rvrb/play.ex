@@ -15,7 +15,7 @@ defmodule Rvrb.Play do
 
   import Ecto.Query
 
-  @star_points 4
+  @star_points 3
   @dope_points 1
 
   # The vote types that count toward a score - the rest (boofstar, nope) don't.
@@ -170,7 +170,7 @@ defmodule Rvrb.Play do
   end
 
   @doc """
-  `user_id`'s single highest-scoring play - scored `star * 4 + dope * 1`,
+  `user_id`'s single highest-scoring play - scored `star * #{@star_points} + dope * #{@dope_points}`,
   summed across everyone who voted on it - or nil if they've never played
   anything. A play nobody's voted on yet can still "win" with a score of
   0 if it's all the user has.
