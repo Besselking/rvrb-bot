@@ -58,18 +58,18 @@ defmodule Rvrb.PlayTest do
       assert Play.best_play(user_fixture().id) == nil
     end
 
-    test "scores a star as four dopes" do
+    test "scores a star as three dopes" do
       user = user_fixture()
-      four_dopes = play_fixture(user, %{track_name: "Four dopes"})
+      three_dopes = play_fixture(user, %{track_name: "Three dopes"})
       one_star = play_fixture(user, %{track_name: "One star"})
 
-      for _ <- 1..4, do: vote_fixture(four_dopes, user_fixture(), "dope")
+      for _ <- 1..3, do: vote_fixture(three_dopes, user_fixture(), "dope")
       vote_fixture(one_star, user_fixture(), "star")
 
-      # A 4-1 tie either way, so what matters is that the two arrive at the
+      # A 3-1 tie either way, so what matters is that the two arrive at the
       # same score. Postgres ranks these now, and ties break toward the
       # older play, so which one wins is fixed rather than incidental.
-      assert %{track_name: "Four dopes", score: 4} = Play.best_play(user.id)
+      assert %{track_name: "Three dopes", score: 3} = Play.best_play(user.id)
     end
 
     test "breaks a tie toward the older play, so a repeat \\stats agrees" do
@@ -80,7 +80,7 @@ defmodule Rvrb.PlayTest do
       vote_fixture(first, user_fixture(), "star")
       vote_fixture(second, user_fixture(), "star")
 
-      assert %{track_name: "First", score: 4} = Play.best_play(user.id)
+      assert %{track_name: "First", score: 3} = Play.best_play(user.id)
       assert Play.best_play(user.id) == Play.best_play(user.id)
     end
 
@@ -91,7 +91,7 @@ defmodule Rvrb.PlayTest do
       vote_fixture(play, user_fixture(), "dope")
       vote_fixture(play, user_fixture(), "dope")
 
-      assert %{track_name: "Loved", artist_names: ["A", "B"], stars: 1, dopes: 2, score: 6} =
+      assert %{track_name: "Loved", artist_names: ["A", "B"], stars: 1, dopes: 2, score: 5} =
                Play.best_play(user.id)
     end
 
@@ -172,12 +172,12 @@ defmodule Rvrb.PlayTest do
       second = play_fixture(user, %{artist_names: ["Spread"]})
       big = play_fixture(user, %{artist_names: ["Single Hit"]})
 
-      # Spread: 1 dope + 1 dope = 2. Single Hit: one star = 4.
+      # Spread: 1 dope + 1 dope = 2. Single Hit: one star = 3.
       vote_fixture(first, user_fixture(), "dope")
       vote_fixture(second, user_fixture(), "dope")
       vote_fixture(big, user_fixture(), "star")
 
-      assert %{artist_name: "Single Hit", score: 4} = Play.best_artist(user.id)
+      assert %{artist_name: "Single Hit", score: 3} = Play.best_artist(user.id)
     end
 
     test "an unvoted artist still wins when nobody has scored at all" do
@@ -195,7 +195,7 @@ defmodule Rvrb.PlayTest do
       vote_fixture(zebra, user_fixture(), "star")
       vote_fixture(aardvark, user_fixture(), "star")
 
-      assert %{artist_name: "Aardvark", score: 4} = Play.best_artist(user.id)
+      assert %{artist_name: "Aardvark", score: 3} = Play.best_artist(user.id)
     end
   end
 
@@ -213,7 +213,7 @@ defmodule Rvrb.PlayTest do
       vote_fixture(play_fixture(tolerated), voter, "dope")
       vote_fixture(play_fixture(tolerated), voter, "dope")
 
-      assert %{display_name: "Liked DJ", user_name: "liked", stars: 1, dopes: 0, score: 4} =
+      assert %{display_name: "Liked DJ", user_name: "liked", stars: 1, dopes: 0, score: 3} =
                Play.favorite_dj(voter.id)
     end
 
@@ -312,9 +312,9 @@ defmodule Rvrb.PlayTest do
       dj = user_fixture()
 
       vote_fixture(play_fixture(dj, %{artist_names: ["Starred"]}), voter, "star")
-      for _ <- 1..3, do: vote_fixture(play_fixture(dj, %{artist_names: ["Doped"]}), voter, "dope")
+      for _ <- 1..2, do: vote_fixture(play_fixture(dj, %{artist_names: ["Doped"]}), voter, "dope")
 
-      assert %{artist_name: "Starred", score: 4} = Play.favorite_artist(voter.id)
+      assert %{artist_name: "Starred", score: 3} = Play.favorite_artist(voter.id)
     end
   end
 

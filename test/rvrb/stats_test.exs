@@ -85,7 +85,7 @@ defmodule Rvrb.StatsTest do
 
       assert [
                %{name: "Busy", plays: 3, score: 0},
-               %{name: "Quiet", plays: 1, stars: 1, score: 4}
+               %{name: "Quiet", plays: 1, stars: 1, score: 3}
              ] = Stats.top_djs(5)
     end
 
@@ -189,8 +189,8 @@ defmodule Rvrb.StatsTest do
       vote_fixture(collab, listener, "star")
 
       assert [
-               %{artist_name: "Solo", plays: 2, dopes: 1, stars: 1, score: 5},
-               %{artist_name: "Guest", plays: 1, dopes: 1, stars: 1, score: 5}
+               %{artist_name: "Solo", plays: 2, dopes: 1, stars: 1, score: 4},
+               %{artist_name: "Guest", plays: 1, dopes: 1, stars: 1, score: 4}
              ] = Stats.top_artists(5)
     end
 
