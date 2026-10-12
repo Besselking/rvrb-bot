@@ -26,7 +26,10 @@ defmodule Rvrb.WebSocketTest do
     def send_queue(queue), do: send(self(), {:send_queue, queue})
 
     @impl true
-    def edit_user(params), do: send(self(), {:edit_user, params})
+    def edit_user(user_id, params), do: send(self(), {:edit_user, user_id, params})
+
+    @impl true
+    def update_djs(channel_id, djs), do: send(self(), {:update_djs, channel_id, djs})
   end
 
   setup do
@@ -204,6 +207,29 @@ defmodule Rvrb.WebSocketTest do
       assert state.bots == MapSet.new(["bot-1"])
     end
 
+    test "finds the bot's own id by its user name, and keeps it" do
+      users = [
+        %{"_id" => "user-1", "userName" => "u1", "createdDate" => "2024-01-01T00:00:00.000Z"},
+        %{"_id" => "bot-1", "userName" => "dj_bot", "createdDate" => "2024-01-01T00:00:00.000Z"}
+      ]
+
+      assert {:ok, state} =
+               handle(
+                 %{"method" => "updateChannelUsers", "params" => %{"users" => users}},
+                 %State{bot_user_name: "dj_bot"}
+               )
+
+      assert state.bot_id == "bot-1"
+
+      assert {:ok, state} =
+               handle(
+                 %{"method" => "updateChannelUsers", "params" => %{"users" => []}},
+                 state
+               )
+
+      assert state.bot_id == "bot-1"
+    end
+
     # The database write is wrapped, but `AutoVote.bot_ids/1` ran after it
     # and outside that wrapper - so a `users` payload it couldn't read
     # raised its way out of `handle_message/2` and dropped the connection,
@@ -355,6 +381,19 @@ defmodule Rvrb.WebSocketTest do
 
       assert JSON.decode!(frame)["params"]["channelId"] == "chan-1"
       assert state.channel_id == "chan-1"
+    end
+
+    test "remembers the bot's own user name" do
+      assert {:reply, _frame, state} =
+               handle(
+                 %{
+                   "method" => "ready",
+                   "params" => %{"channelId" => "c", "userName" => "dj_bot"}
+                 },
+                 %State{}
+               )
+
+      assert state.bot_user_name == "dj_bot"
     end
   end
 

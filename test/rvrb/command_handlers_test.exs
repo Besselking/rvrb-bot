@@ -29,7 +29,10 @@ defmodule Rvrb.CommandHandlersTest do
     def send_queue(queue), do: send(self(), {:send_queue, queue})
 
     @impl true
-    def edit_user(params), do: send(self(), {:edit_user, params})
+    def edit_user(user_id, params), do: send(self(), {:edit_user, user_id, params})
+
+    @impl true
+    def update_djs(channel_id, djs), do: send(self(), {:update_djs, channel_id, djs})
   end
 
   setup do
@@ -80,6 +83,29 @@ defmodule Rvrb.CommandHandlersTest do
     end
   end
 
+  describe "\\editbot" do
+    setup do
+      previous = Application.get_env(:rvrb, :bot_admins)
+      Application.put_env(:rvrb, :bot_admins, ["admin-1"])
+      on_exit(fn -> Application.put_env(:rvrb, :bot_admins, previous) end)
+    end
+
+    test "edits the bot's own user, by the id found for it" do
+      assert {:ok, _state} =
+               handle("\\editbot bio Beep boop", %{"userId" => "admin-1"}, %State{bot_id: "bot-1"})
+
+      assert_received {:edit_user, "bot-1", %{bio: "Beep boop"}}
+      assert_received {:chat, "Setting the bot's bio to Beep boop"}
+    end
+
+    test "turns away someone who is not an admin" do
+      assert {:ok, _state} =
+               handle("\\editbot bio Beep", %{"userId" => "someone"}, %State{bot_id: "bot-1"})
+
+      refute_received {:edit_user, _, _}
+    end
+  end
+
   describe "\\spin" do
     test "says nothing is playing when no track has played yet" do
       assert {:ok, _state} = handle("\\spin", %{}, %State{})
@@ -125,10 +151,11 @@ defmodule Rvrb.CommandHandlersTest do
 
       assert {:ok, _state} =
                handle("\\skip", %{"userId" => user.rvrb_id}, %State{
+                 channel_id: "chan-1",
                  djs: ["dj-a", "dj-b", user.rvrb_id]
                })
 
-      assert_received {:send_message, %{method: "updateDjs", params: %{djs: djs}}}
+      assert_received {:update_djs, "chan-1", djs}
       assert djs == ["dj-a", user.rvrb_id, "dj-b"]
       assert_received {:chat, "You're next up!"}
       assert Rvrb.User.get(user.rvrb_id).received_skip == true
