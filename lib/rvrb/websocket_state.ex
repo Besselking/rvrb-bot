@@ -26,6 +26,8 @@ defmodule Rvrb.WebSocket.State do
           current_track_started_at: integer() | nil,
           queue: [map()],
           channel_id: String.t() | nil,
+          bot_user_name: String.t() | nil,
+          bot_id: String.t() | nil,
           replaced: boolean()
         }
 
@@ -54,6 +56,12 @@ defmodule Rvrb.WebSocket.State do
             queue: [],
             # The channel the bot joined, from the `ready` push.
             channel_id: nil,
+            # The bot's own `userName`, from the `ready` push, and the RVRB
+            # id that goes with it. `ready` carries no id, so it is found in
+            # `updateChannelUsers` by name. The HTTP routes need the id -
+            # `PATCH /api/users/{userId}` only edits your own.
+            bot_user_name: nil,
+            bot_id: nil,
             # True once RVRB sent `closed` with reason 1: another client of
             # the bot's account connected and took this connection's place.
             # Reconnecting would only take it back and start a tug of war,

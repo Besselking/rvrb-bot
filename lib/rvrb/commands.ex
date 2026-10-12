@@ -195,7 +195,9 @@ defmodule Rvrb.Commands do
   defp chat(message), do: Rvrb.Socket.impl().chat(message)
   defp send_message(message), do: Rvrb.Socket.impl().send_message(message)
   defp send_queue(queue), do: Rvrb.Socket.impl().send_queue(queue)
-  defp edit_user(params), do: Rvrb.Socket.impl().edit_user(params)
+  defp edit_user(user_id, params), do: Rvrb.Socket.impl().edit_user(user_id, params)
+
+  defp update_djs(channel_id, djs), do: Rvrb.Socket.impl().update_djs(channel_id, djs)
 
   defp admin?(user_id) do
     admins = Application.get_env(:rvrb, :bot_admins)
@@ -576,11 +578,7 @@ defmodule Rvrb.Commands do
         if reordered == current_djs do
           chat("Skipping wont do anything right now.")
         else
-          send_message(%{
-            jsonrpc: "2.0",
-            method: "updateDjs",
-            params: %{djs: reordered}
-          })
+          update_djs(state.channel_id, reordered)
 
           User.update_received_skip(user)
           chat("You're next up!")
@@ -634,8 +632,8 @@ defmodule Rvrb.Commands do
     if admin?(user_id) do
       case parse_editbot(args) do
         {:ok, field, value} ->
-          edit_user(%{field => value})
-          chat("Set the bot's #{field} to #{Html.escape(value)}")
+          edit_user(state.bot_id, %{field => value})
+          chat("Setting the bot's #{field} to #{Html.escape(value)}")
 
         {:error, message} ->
           chat(message)

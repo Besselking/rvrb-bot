@@ -10,7 +10,8 @@ defmodule Rvrb.Socket do
   @callback chat(message :: String.t()) :: any()
   @callback send_message(message :: map()) :: any()
   @callback send_queue(queue :: list()) :: any()
-  @callback edit_user(params :: map()) :: any()
+  @callback edit_user(user_id :: String.t() | nil, params :: map()) :: any()
+  @callback update_djs(channel_id :: String.t() | nil, djs :: [String.t()]) :: any()
 
   @doc "The module implementing this behaviour, `Rvrb.WebSocket` unless overridden."
   def impl, do: Application.get_env(:rvrb, :socket, Rvrb.WebSocket)

@@ -1,4 +1,5 @@
 defmodule Rvrb.WebSocket do
+  alias Rvrb.Api
   alias Rvrb.AutoVote
   alias Rvrb.Commands
   alias Rvrb.PlayWriter
@@ -16,18 +17,34 @@ defmodule Rvrb.WebSocket do
   end
 
   @doc """
-  Updates the bot's own profile. `params` holds the subset of RVRB's
-  `editUser` keys to change - `displayName`, `image`, `djImage`,
-  `thumbsUpImage`, `thumbsDownImage`, `bio` - and anything left out keeps
-  its current value.
+  Updates the bot's own profile. `params` holds the subset of RVRB's user
+  keys to change - `displayName`, `image`, `djImage`, `thumbsUpImage`,
+  `thumbsDownImage`, `bio` - and anything left out keeps its current value.
+
+  RVRB no longer takes this over the websocket, so it is an HTTP call to
+  `PATCH /api/users/{userId}`, made in a task: the connection process must
+  keep answering `keepAwake` while it is in flight. A failure is said in
+  chat, since the command that asked has already moved on.
   """
-  def edit_user(params) do
-    send_message(%{
-      jsonrpc: "2.0",
-      method: "editUser",
-      params: params,
-      id: Enum.random(1..1000)
-    })
+  def edit_user(user_id, params) do
+    in_background("profile update", fn -> Api.patch_user(user_id, params) end)
+  end
+
+  @doc """
+  Puts the DJ queue in the order of `djs`, over `PUT /api/channel/{id}/djs`.
+  Run in a task for the same reason as `edit_user/2`.
+  """
+  def update_djs(channel_id, djs) do
+    in_background("DJ queue update", fn -> Api.put_djs(channel_id, djs) end)
+  end
+
+  defp in_background(what, fun) do
+    Task.start(fn ->
+      case fun.() do
+        :ok -> :ok
+        {:error, message} -> chat("The #{what} failed: #{message}")
+      end
+    end)
   end
 
   def dope(), do: cast_vote(%{dope: true})
@@ -208,7 +225,7 @@ defmodule Rvrb.WebSocket do
   def handle_message(%{"method" => "ready", "params" => params}, state) do
     Logger.info("ready! #{inspect(params)}")
 
-    state = %{state | channel_id: params["channelId"]}
+    state = %{state | channel_id: params["channelId"], bot_user_name: params["userName"]}
 
     join_message =
       JSON.encode!(%{
@@ -251,7 +268,12 @@ defmodule Rvrb.WebSocket do
 
     # Accumulated rather than replaced: a push carries whoever it carries,
     # and a bot doesn't stop being one by not being mentioned again.
-    {:ok, %{state | bots: MapSet.union(state.bots, AutoVote.bot_ids(users))}}
+    {:ok,
+     %{
+       state
+       | bots: MapSet.union(state.bots, AutoVote.bot_ids(users)),
+         bot_id: find_bot_id(users, state)
+     }}
   end
 
   # RVRB asks for a track when it's the bot's turn to DJ. With an empty
@@ -467,6 +489,17 @@ defmodule Rvrb.WebSocket do
     Logger.debug("Received state: #{inspect(unknown_message)}")
     {:ok, state}
   end
+
+  # The bot's own id, once a push names it. Kept when a push doesn't mention
+  # the bot, and tolerant of the junk `updateChannelUsers` tests feed it.
+  defp find_bot_id(users, %{bot_user_name: name, bot_id: current}) when is_list(users) do
+    Enum.find_value(users, current, fn
+      %{"userName" => ^name, "_id" => id} when is_binary(name) and is_binary(id) -> id
+      _other -> nil
+    end)
+  end
+
+  defp find_bot_id(_users, %{bot_id: current}), do: current
 
   # `message[outer][inner]`, or nil when `outer` isn't an object.
   defp get_in_map(message, outer, inner) do
