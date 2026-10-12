@@ -5,8 +5,9 @@ defmodule Rvrb.Api do
 
   RVRB moved two operations off the websocket and onto these routes:
   reordering the DJ queue (`PUT /api/channel/{channelId}/djs`) and editing
-  a profile (`PATCH /api/users/{userId}`). Both return `:ok` or
-  `{:error, message}`, with a message fit for chat.
+  a profile (`PATCH /api/users/{userId}`). Those return `:ok` or
+  `{:error, message}`, with a message fit for chat. `get_channel/1` reads
+  the channel, whose role lists say who the bot's admins are.
   """
 
   require Logger
@@ -16,7 +17,9 @@ defmodule Rvrb.Api do
 
   @doc "Puts the DJs in `djs` (RVRB user ids) in that order."
   def put_djs(channel_id, djs) when is_binary(channel_id) and is_list(djs) do
-    request(:put, "/api/channel/#{URI.encode_www_form(channel_id)}/djs", %{djs: djs})
+    with {:ok, _body} <-
+           request(:put, "/api/channel/#{URI.encode_www_form(channel_id)}/djs", %{djs: djs}),
+         do: :ok
   end
 
   def put_djs(_channel_id, _djs), do: {:error, "the bot has not joined a channel yet"}
@@ -27,18 +30,30 @@ defmodule Rvrb.Api do
   `thumbsDownImage` and `bio`.
   """
   def patch_user(user_id, params) when is_binary(user_id) and is_map(params) do
-    request(:patch, "/api/users/#{URI.encode_www_form(user_id)}", params)
+    with {:ok, _body} <- request(:patch, "/api/users/#{URI.encode_www_form(user_id)}", params),
+         do: :ok
   end
 
   def patch_user(_user_id, _params), do: {:error, "I don't know my own user id yet"}
 
+  @doc """
+  The channel `channel_id` (its `_id` or slug), as the decoded JSON map.
+  The bot sees what a user with no role sees, which includes `roles`.
+  """
+  def get_channel(channel_id) when is_binary(channel_id) do
+    request(:get, "/api/channel/#{URI.encode_www_form(channel_id)}", nil)
+  end
+
+  def get_channel(_channel_id), do: {:error, "the bot has not joined a channel yet"}
+
   defp request(method, path, body) do
     url = base_url() <> path
+    payload = if body, do: JSON.encode!(body), else: ""
     headers = [{"authorization", "Bearer #{token()}"}, {"content-type", "application/json"}]
 
-    case HTTPoison.request(method, url, JSON.encode!(body), headers, recv_timeout: @timeout) do
-      {:ok, %HTTPoison.Response{status_code: status}} when status in 200..299 ->
-        :ok
+    case HTTPoison.request(method, url, payload, headers, recv_timeout: @timeout) do
+      {:ok, %HTTPoison.Response{status_code: status, body: response}} when status in 200..299 ->
+        {:ok, decode(response)}
 
       {:ok, %HTTPoison.Response{status_code: status, body: response}} ->
         Logger.warning("#{method} #{path} answered #{status}: #{inspect(response)}")
@@ -47,6 +62,13 @@ defmodule Rvrb.Api do
       {:error, %HTTPoison.Error{reason: reason}} ->
         Logger.warning("#{method} #{path} failed: #{inspect(reason)}")
         {:error, "the request to RVRB failed"}
+    end
+  end
+
+  defp decode(response) do
+    case JSON.decode(response) do
+      {:ok, decoded} -> decoded
+      {:error, _reason} -> nil
     end
   end
 

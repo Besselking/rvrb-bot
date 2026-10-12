@@ -33,6 +33,9 @@ defmodule Rvrb.CommandHandlersTest do
 
     @impl true
     def update_djs(channel_id, djs), do: send(self(), {:update_djs, channel_id, djs})
+
+    @impl true
+    def refresh_admins(channel_id), do: send(self(), {:refresh_admins, channel_id})
   end
 
   setup do
@@ -84,25 +87,44 @@ defmodule Rvrb.CommandHandlersTest do
   end
 
   describe "\\editbot" do
-    setup do
-      previous = Application.get_env(:rvrb, :bot_admins)
-      Application.put_env(:rvrb, :bot_admins, ["admin-1"])
-      on_exit(fn -> Application.put_env(:rvrb, :bot_admins, previous) end)
-    end
-
     test "edits the bot's own user, by the id found for it" do
-      assert {:ok, _state} =
-               handle("\\editbot bio Beep boop", %{"userId" => "admin-1"}, %State{bot_id: "bot-1"})
+      state = %State{bot_id: "bot-1", admins: MapSet.new(["admin-1"])}
+
+      assert {:ok, _state} = handle("\\editbot bio Beep boop", %{"userId" => "admin-1"}, state)
 
       assert_received {:edit_user, "bot-1", %{bio: "Beep boop"}}
       assert_received {:chat, "Setting the bot's bio to Beep boop"}
     end
 
     test "turns away someone who is not an admin" do
-      assert {:ok, _state} =
-               handle("\\editbot bio Beep", %{"userId" => "someone"}, %State{bot_id: "bot-1"})
+      state = %State{bot_id: "bot-1", admins: MapSet.new(["admin-1"])}
+
+      assert {:ok, _state} = handle("\\editbot bio Beep", %{"userId" => "someone"}, state)
 
       refute_received {:edit_user, _, _}
+      assert_received {:chat, "Sorry, you're not allowed to change the bot's profile"}
+    end
+
+    test "turns everyone away while the channel's admins are not known yet" do
+      assert {:ok, _state} =
+               handle("\\editbot bio Beep", %{"userId" => "admin-1"}, %State{bot_id: "bot-1"})
+
+      refute_received {:edit_user, _, _}
+    end
+  end
+
+  describe "\\queue" do
+    test "turns away someone who is not a channel admin" do
+      state = %State{admins: MapSet.new(["admin-1"])}
+
+      assert {:ok, ^state} =
+               handle(
+                 "\\queue https://open.spotify.com/track/abc",
+                 %{"userId" => "someone"},
+                 state
+               )
+
+      assert_received {:chat, "Sorry, you're not allowed to queue tracks"}
     end
   end
 

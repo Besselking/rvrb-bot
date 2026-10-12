@@ -28,6 +28,7 @@ defmodule Rvrb.WebSocket.State do
           channel_id: String.t() | nil,
           bot_user_name: String.t() | nil,
           bot_id: String.t() | nil,
+          admins: MapSet.t(String.t()),
           replaced: boolean()
         }
 
@@ -62,11 +63,32 @@ defmodule Rvrb.WebSocket.State do
             # `PATCH /api/users/{userId}` only edits your own.
             bot_user_name: nil,
             bot_id: nil,
+            # RVRB ids allowed to run the admin-only commands: the admins
+            # and creators in the channel's `roles`. Empty until the first
+            # read of the channel lands, so nobody is an admin by default.
+            admins: MapSet.new(),
             # True once RVRB sent `closed` with reason 1: another client of
             # the bot's account connected and took this connection's place.
             # Reconnecting would only take it back and start a tug of war,
             # so the disconnect and error callbacks stop instead.
             replaced: false
+
+  @doc """
+  The ids allowed to run admin-only commands, from a channel as RVRB sends
+  it (`GET /api/channel/{id}` and the `updateChannel` push): its `roles`
+  `admins` and `creators`. Moderators are not admins. Returns `nil` for
+  anything without a readable `roles`, so a push that omits them leaves the
+  current admins alone.
+  """
+  def admins_from_channel(%{"roles" => %{} = roles}) do
+    for role <- ["admins", "creators"],
+        id <- List.wrap(roles[role]),
+        is_binary(id),
+        into: MapSet.new(),
+        do: id
+  end
+
+  def admins_from_channel(_channel), do: nil
 
   @doc """
   A plain-map view of the parts of the connection's state that are worth
