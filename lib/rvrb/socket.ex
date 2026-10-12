@@ -11,6 +11,7 @@ defmodule Rvrb.Socket do
   @callback send_message(message :: map()) :: any()
   @callback send_queue(queue :: list()) :: any()
   @callback edit_user(user_id :: String.t() | nil, params :: map()) :: any()
+  @callback refresh_admins(channel_id :: String.t() | nil) :: any()
   @callback update_djs(channel_id :: String.t() | nil, djs :: [String.t()]) :: any()
 
   @doc "The module implementing this behaviour, `Rvrb.WebSocket` unless overridden."

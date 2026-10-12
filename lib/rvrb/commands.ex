@@ -199,10 +199,9 @@ defmodule Rvrb.Commands do
 
   defp update_djs(channel_id, djs), do: Rvrb.Socket.impl().update_djs(channel_id, djs)
 
-  defp admin?(user_id) do
-    admins = Application.get_env(:rvrb, :bot_admins)
-    Enum.member?(admins, user_id)
-  end
+  # Admins are the channel's admins and creators, kept in `state.admins` -
+  # see `Rvrb.WebSocket.State.admins_from_channel/1`.
+  defp admin?(user_id, state), do: MapSet.member?(state.admins, user_id)
 
   ## -- handlers --------------------------------------------------------
 
@@ -383,7 +382,7 @@ defmodule Rvrb.Commands do
   end
 
   def queue(url, %{"userId" => user_id}, state) do
-    if admin?(user_id) do
+    if admin?(user_id, state) do
       {type, id} = SpotifyUrl.parse(url)
 
       queue =
@@ -629,7 +628,7 @@ defmodule Rvrb.Commands do
   defp non_empty(str), do: str
 
   def editbot(args, %{"userId" => user_id}, state) do
-    if admin?(user_id) do
+    if admin?(user_id, state) do
       case parse_editbot(args) do
         {:ok, field, value} ->
           edit_user(state.bot_id, %{field => value})

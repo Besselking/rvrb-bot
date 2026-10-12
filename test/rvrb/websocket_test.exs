@@ -30,6 +30,9 @@ defmodule Rvrb.WebSocketTest do
 
     @impl true
     def update_djs(channel_id, djs), do: send(self(), {:update_djs, channel_id, djs})
+
+    @impl true
+    def refresh_admins(channel_id), do: send(self(), {:refresh_admins, channel_id})
   end
 
   setup do
@@ -383,6 +386,13 @@ defmodule Rvrb.WebSocketTest do
       assert state.channel_id == "chan-1"
     end
 
+    test "asks for the channel's admins" do
+      assert {:reply, _frame, _state} =
+               handle(%{"method" => "ready", "params" => %{"channelId" => "chan-1"}}, %State{})
+
+      assert_received {:refresh_admins, "chan-1"}
+    end
+
     test "remembers the bot's own user name" do
       assert {:reply, _frame, state} =
                handle(
@@ -443,6 +453,51 @@ defmodule Rvrb.WebSocketTest do
 
     test "survives a push with no params" do
       assert {:ok, %State{}} = handle(%{"method" => "leaveChannel"}, %State{})
+    end
+  end
+
+  describe "channel admins" do
+    test "State.admins_from_channel/1 takes admins and creators, not mods" do
+      channel = %{"roles" => %{"mods" => ["m"], "admins" => ["a"], "creators" => ["c"]}}
+
+      assert State.admins_from_channel(channel) == MapSet.new(["a", "c"])
+    end
+
+    test "State.admins_from_channel/1 tolerates missing or odd roles" do
+      assert State.admins_from_channel(%{"roles" => %{}}) == MapSet.new()
+
+      assert State.admins_from_channel(%{"roles" => %{"admins" => [1, nil, "a"]}}) ==
+               MapSet.new(["a"])
+
+      assert State.admins_from_channel(%{"roles" => nil}) == nil
+      assert State.admins_from_channel(%{}) == nil
+      assert State.admins_from_channel(nil) == nil
+    end
+
+    test "updateChannel replaces the admins" do
+      state = %State{admins: MapSet.new(["old"])}
+
+      message = %{
+        "method" => "updateChannel",
+        "params" => %{"channel" => %{"roles" => %{"admins" => ["new"]}}}
+      }
+
+      assert {:ok, %{admins: admins}} = handle(message, state)
+      assert admins == MapSet.new(["new"])
+    end
+
+    test "updateChannel without roles keeps the admins" do
+      state = %State{admins: MapSet.new(["old"])}
+      message = %{"method" => "updateChannel", "params" => %{"channel" => %{"title" => "t"}}}
+
+      assert {:ok, ^state} = handle(message, state)
+    end
+
+    test "the fetched admins land in the state" do
+      assert {:ok, %{admins: admins}} =
+               WebSocket.handle_info({:channel_admins, MapSet.new(["a"])}, %State{})
+
+      assert admins == MapSet.new(["a"])
     end
   end
 

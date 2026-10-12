@@ -38,6 +38,31 @@ defmodule Rvrb.WebSocket do
     in_background("DJ queue update", fn -> Api.put_djs(channel_id, djs) end)
   end
 
+  @doc """
+  Reads the channel's roles and hands the connection the admins, retrying a
+  few times: until it lands nobody can run an admin command. Runs in a task
+  and answers with `{:channel_admins, admins}` to the connection process.
+  """
+  def refresh_admins(channel_id) do
+    connection = Process.whereis(Connection)
+
+    Task.start(fn -> fetch_admins(connection, channel_id, 3) end)
+  end
+
+  defp fetch_admins(connection, channel_id, attempts_left) do
+    with {:ok, channel} <- Api.get_channel(channel_id),
+         %MapSet{} = admins <- State.admins_from_channel(channel) do
+      send(connection, {:channel_admins, admins})
+    else
+      _failed when attempts_left > 1 ->
+        Process.sleep(:timer.seconds(5))
+        fetch_admins(connection, channel_id, attempts_left - 1)
+
+      _failed ->
+        Logger.error("could not read the admins of channel #{inspect(channel_id)}")
+    end
+  end
+
   defp in_background(what, fun) do
     Task.start(fn ->
       case fun.() do
@@ -235,6 +260,8 @@ defmodule Rvrb.WebSocket do
         },
         id: Enum.random(1..100)
       })
+
+    Rvrb.Socket.impl().refresh_admins(state.channel_id)
 
     Logger.debug("OUT: #{join_message}")
     {:reply, {:text, join_message}, state}
@@ -446,6 +473,15 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
+  # Roles changed, or the channel was edited: the push carries the channel,
+  # roles included. One without roles leaves the admins as they were.
+  def handle_message(%{"method" => "updateChannel", "params" => %{"channel" => channel}}, state) do
+    case State.admins_from_channel(channel) do
+      nil -> {:ok, state}
+      admins -> {:ok, %{state | admins: admins}}
+    end
+  end
+
   # The bot is no longer in the channel: kicked, banned, or the channel was
   # deleted. Rejoining on our own would undo a moderator's decision (or fail
   # for a ban or a deleted channel), so the bot stays connected but idle, and
@@ -568,6 +604,11 @@ defmodule Rvrb.WebSocket do
   # Answers `live_state/1`. Nothing here touches the database or the
   # socket: it's a projection of state we already hold, so a reader
   # hammering it can't slow the room down or wedge the connection.
+  def handle_info({:channel_admins, admins}, state) do
+    Logger.info("channel admins: #{MapSet.size(admins)}")
+    {:ok, %{state | admins: admins}}
+  end
+
   def handle_info({:live_state, from, ref}, state) do
     send(from, {:live_state, ref, State.snapshot(state)})
     {:ok, state}
