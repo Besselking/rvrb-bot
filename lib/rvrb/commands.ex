@@ -69,6 +69,12 @@ defmodule Rvrb.Commands do
       handler: &__MODULE__.join/3
     },
     %{
+      name: "leave",
+      usage: "\\leave",
+      description: "Have the bot leave the DJ queue.",
+      handler: &__MODULE__.leave/3
+    },
+    %{
       name: "artist",
       usage: "\\artist",
       description:
@@ -402,6 +408,11 @@ defmodule Rvrb.Commands do
 
   def join(_args, _params, state) do
     send_message(%{method: "joinDjs"})
+    {:ok, state}
+  end
+
+  def leave(_args, _params, state) do
+    send_message(%{method: "leaveDjs"})
     {:ok, state}
   end
 

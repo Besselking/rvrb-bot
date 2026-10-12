@@ -376,6 +376,71 @@ defmodule Rvrb.WebSocketTest do
     end
   end
 
+  describe "leaveChannel" do
+    test "forgets the room but keeps the queued tracks" do
+      state = %State{
+        djs: ["dj-a"],
+        current_track: %{"name" => "Alpha"},
+        current_track_started_at: 1,
+        dopes: ["dj-a"],
+        stars: ["dj-a"],
+        doped: true,
+        starred: true,
+        queue: [%{"name" => "Queued"}]
+      }
+
+      assert {:ok, new_state} =
+               handle(%{"method" => "leaveChannel", "params" => %{"channelId" => "c"}}, state)
+
+      assert new_state.djs == []
+      assert new_state.current_track == %{}
+      assert new_state.current_track_started_at == nil
+      assert new_state.dopes == [] and new_state.stars == []
+      refute new_state.doped
+      refute new_state.starred
+      assert new_state.queue == [%{"name" => "Queued"}]
+      refute_received {:send_message, _}
+    end
+
+    test "survives a push with no params" do
+      assert {:ok, %State{}} = handle(%{"method" => "leaveChannel"}, %State{})
+    end
+  end
+
+  describe "closed" do
+    test "reason 1 marks the connection as replaced" do
+      assert {:ok, %State{replaced: true}} =
+               handle(%{"method" => "closed", "params" => %{"reason" => 1}}, %State{})
+    end
+
+    test "any other reason leaves the connection reconnectable" do
+      for message <- [
+            %{"method" => "closed", "params" => %{"reason" => -1}},
+            %{"method" => "closed", "params" => %{}},
+            %{"method" => "closed", "params" => "junk"},
+            %{"method" => "closed"}
+          ] do
+        assert {:ok, %State{replaced: false}} = handle(message, %State{})
+      end
+    end
+  end
+
+  describe "reconnecting" do
+    test "reconnects after a protocol error normally" do
+      capture_log(fn ->
+        assert WebSocket.handle_disconnect(1002, "", %State{}) == :reconnect
+        assert WebSocket.handle_error(:boom, %State{}) == :reconnect
+      end)
+    end
+
+    test "does not reconnect once another client replaced the connection" do
+      capture_log(fn ->
+        assert WebSocket.handle_disconnect(1002, "", %State{replaced: true}) == :close
+        assert WebSocket.handle_error(:boom, %State{replaced: true}) == :close
+      end)
+    end
+  end
+
   describe "State.snapshot/1" do
     test "projects the room without the raw track payload" do
       track = %{

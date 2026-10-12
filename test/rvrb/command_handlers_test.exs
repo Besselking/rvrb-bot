@@ -68,6 +68,18 @@ defmodule Rvrb.CommandHandlersTest do
     end
   end
 
+  describe "\\join and \\leave" do
+    test "\\join asks RVRB to put the bot on the decks" do
+      assert {:ok, _state} = handle("\\join", %{}, %State{})
+      assert_received {:send_message, %{method: "joinDjs"}}
+    end
+
+    test "\\leave asks RVRB to take the bot off the decks" do
+      assert {:ok, _state} = handle("\\leave", %{}, %State{})
+      assert_received {:send_message, %{method: "leaveDjs"}}
+    end
+  end
+
   describe "\\spin" do
     test "says nothing is playing when no track has played yet" do
       assert {:ok, _state} = handle("\\spin", %{}, %State{})
