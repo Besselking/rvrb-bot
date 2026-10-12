@@ -141,6 +141,11 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
+  def handle_disconnect(_code, _reason, %State{replaced: true}) do
+    Logger.warning("Closing, another client replaced this connection")
+    :close
+  end
+
   def handle_disconnect(1002, _reason, _state) do
     Logger.warning("Reconnecting")
     :reconnect
@@ -155,6 +160,11 @@ defmodule Rvrb.WebSocket do
       when error in [:encoding_failed, :casting_failed] do
     Logger.error("#{error} #{reason}")
     {:ignore, state}
+  end
+
+  def handle_error(error, %State{replaced: true}) do
+    Logger.warning("Closing after #{inspect(error)}, another client replaced this connection")
+    :close
   end
 
   def handle_error(error, _state) do
@@ -414,9 +424,56 @@ defmodule Rvrb.WebSocket do
     {:ok, state}
   end
 
+  # The bot is no longer in the channel: kicked, banned, or the channel was
+  # deleted. Rejoining on our own would undo a moderator's decision (or fail
+  # for a ban or a deleted channel), so the bot stays connected but idle, and
+  # drops what it knew about the room - none of it is current any more. The
+  # `\queue` is kept; an admin put it there and it is still wanted.
+  def handle_message(%{"method" => "leaveChannel"} = message, state) do
+    channel_id = get_in_map(message, "params", "channelId")
+
+    Logger.warning("leaveChannel! removed from channel #{inspect(channel_id)}")
+
+    {:ok,
+     %{
+       state
+       | djs: [],
+         doped: false,
+         starred: false,
+         dopes: [],
+         stars: [],
+         current_track: %{},
+         current_track_started_at: nil
+     }}
+  end
+
+  # RVRB is about to close this connection. Reason 1 means another client of
+  # the bot's account connected; anything else is just a close. Either way
+  # the socket closing is what ends the connection, so this only records
+  # why, for the disconnect and error callbacks.
+  def handle_message(%{"method" => "closed"} = message, state) do
+    reason = get_in_map(message, "params", "reason")
+
+    if reason == 1 do
+      Logger.warning("closed! replaced by another client, will not reconnect")
+      {:ok, %{state | replaced: true}}
+    else
+      Logger.warning("closed! reason #{inspect(reason)}")
+      {:ok, state}
+    end
+  end
+
   def handle_message(unknown_message, state) do
     Logger.debug("Received state: #{inspect(unknown_message)}")
     {:ok, state}
+  end
+
+  # `message[outer][inner]`, or nil when `outer` isn't an object.
+  defp get_in_map(message, outer, inner) do
+    case message[outer] do
+      %{} = map -> map[inner]
+      _not_a_map -> nil
+    end
   end
 
   # The write happens here on the connection process, outside the

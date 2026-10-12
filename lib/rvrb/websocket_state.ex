@@ -25,7 +25,8 @@ defmodule Rvrb.WebSocket.State do
           current_track: map(),
           current_track_started_at: integer() | nil,
           queue: [map()],
-          channel_id: String.t() | nil
+          channel_id: String.t() | nil,
+          replaced: boolean()
         }
 
   defstruct djs: [],
@@ -52,7 +53,12 @@ defmodule Rvrb.WebSocket.State do
             # it asks for the bot's next track.
             queue: [],
             # The channel the bot joined, from the `ready` push.
-            channel_id: nil
+            channel_id: nil,
+            # True once RVRB sent `closed` with reason 1: another client of
+            # the bot's account connected and took this connection's place.
+            # Reconnecting would only take it back and start a tug of war,
+            # so the disconnect and error callbacks stop instead.
+            replaced: false
 
   @doc """
   A plain-map view of the parts of the connection's state that are worth
