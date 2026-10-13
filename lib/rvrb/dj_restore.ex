@@ -54,6 +54,25 @@ defmodule Rvrb.DjRestore do
   end
 
   @doc """
+  Who `update/6` actually moved, as `{id, spot}` pairs with the spot
+  counted from the front of `restored`.
+
+  A DJ who rejoined and was kept at the back - because that is where their
+  spot was, or the queue was too short to go further - was not moved, and
+  is left out. Pass the queue before the change (`old_djs`), after it
+  (`new_djs`) and what `update/6` returned (`restored`).
+  """
+  def moves(old_djs, new_djs, restored) do
+    new_djs
+    |> Enum.reject(&(&1 in old_djs))
+    |> Enum.flat_map(fn id ->
+      spot = Enum.find_index(restored, &(&1 == id))
+
+      if spot != Enum.find_index(new_djs, &(&1 == id)), do: [{id, spot}], else: []
+    end)
+  end
+
+  @doc """
   The spot, counted from the front of the queue, that a DJ who dropped with
   `entry` goes back to when `plays` tracks have started in all.
   """

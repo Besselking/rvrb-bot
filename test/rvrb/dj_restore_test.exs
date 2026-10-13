@@ -40,6 +40,25 @@ defmodule Rvrb.DjRestoreTest do
     end
   end
 
+  describe "moves/3" do
+    test "lists who was moved, with the spot they went to" do
+      assert DjRestore.moves(~w[a b d e], ~w[a b d e c], ~w[a b c d e]) == [{"c", 2}]
+    end
+
+    test "leaves out a DJ who stayed at the back" do
+      assert DjRestore.moves(~w[a], ~w[a c], ~w[a c]) == []
+      assert DjRestore.moves(~w[a b], ~w[a b c], ~w[a b c]) == []
+    end
+
+    test "leaves out DJs who were already in the queue" do
+      assert DjRestore.moves(~w[a b], ~w[b a], ~w[b a]) == []
+    end
+
+    test "lists every DJ who was moved" do
+      assert DjRestore.moves(~w[a c e], ~w[a c e b d], ~w[a b c d e]) == [{"b", 1}, {"d", 3}]
+    end
+  end
+
   describe "update/6" do
     test "records who dropped and from where" do
       assert %{"c" => %{position: 2, plays: 0, at: 5}} = drop_c(0, 5)

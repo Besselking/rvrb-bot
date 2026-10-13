@@ -468,6 +468,7 @@ defmodule Rvrb.WebSocket do
     if restored != djs do
       Logger.info("restoring a returning DJ: #{inspect(djs)} => #{inspect(restored)}")
       Rvrb.Socket.impl().update_djs(state.channel_id, restored)
+      announce_restored(DjRestore.moves(current_djs, djs, restored))
     end
 
     state = %{state | djs: djs, dropped: dropped}
@@ -556,6 +557,25 @@ defmodule Rvrb.WebSocket do
   end
 
   defp find_bot_id(_users, %{bot_id: current}), do: current
+
+  # Tells the room who was put back where. `spot` counts from the front of
+  # the queue, where 0 is the track playing, so the DJ's place in line is
+  # one more. Names come from the users table, which the room's pushes keep
+  # up to date.
+  defp announce_restored([]), do: :ok
+
+  defp announce_restored(moves) do
+    users = Rvrb.User.get_users(Enum.map(moves, &elem(&1, 0)))
+
+    for {id, spot} <- moves do
+      name = Html.escape(Rvrb.User.get_name(users, id) || "DJ")
+      next_up = if spot == 1, do: " - you're up next!", else: "."
+
+      Rvrb.Socket.impl().chat(
+        "Welcome back #{name}, I've put you back in spot #{spot + 1} of the queue#{next_up}"
+      )
+    end
+  end
 
   # The bots' ids: their place in the queue is not worth keeping.
   defp ignored_ids(%{bot_id: nil, bots: bots}), do: bots

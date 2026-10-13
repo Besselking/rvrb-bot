@@ -378,6 +378,9 @@ defmodule Rvrb.WebSocketTest do
 
       {:ok, state} = handle(djs(["dj-a", "dj-b", "dj-d", "dj-c"]), state)
       assert_received {:update_djs, "chan-1", ["dj-a", "dj-b", "dj-c", "dj-d"]}
+      assert_received {:chat, message}
+      assert message =~ "Welcome back"
+      assert message =~ "spot 3 of the queue."
       assert state.dropped == %{}
       assert state.djs == ["dj-a", "dj-b", "dj-d", "dj-c"]
     end
@@ -393,12 +396,23 @@ defmodule Rvrb.WebSocketTest do
       assert_received {:update_djs, "chan-1", ["dj-b", "dj-c", "dj-d", "dj-a"]}
     end
 
-    test "leaves the queue alone when the returning DJ is already in their spot" do
+    test "says nothing when the returning DJ stays at the back" do
       state = %State{channel_id: "chan-1", djs: ["dj-a", "dj-b"]}
       {:ok, state} = handle(djs(["dj-a"]), state)
       {:ok, _state} = handle(djs(["dj-a", "dj-b"]), state)
 
       refute_received {:update_djs, _, _}
+      refute_received {:chat, _}
+    end
+
+    test "tells a DJ who goes next up that they are up next" do
+      state = %State{channel_id: "chan-1", djs: ["dj-a", "dj-b", "dj-c"], plays: 0}
+      {:ok, state} = handle(djs(["dj-a", "dj-b"]), state)
+      {:ok, _state} = handle(djs(["dj-a", "dj-b", "dj-c"]), %{state | plays: 1})
+
+      assert_received {:update_djs, "chan-1", ["dj-a", "dj-c", "dj-b"]}
+      assert_received {:chat, message}
+      assert message =~ "spot 2 of the queue - you're up next!"
     end
 
     test "does not keep a spot for the bot" do
