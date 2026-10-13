@@ -93,14 +93,18 @@ defmodule Rvrb.Commands do
       description:
         "Show DJ stats (tracks played, dopes/favorites received, favorite DJs and tracks) for yourself or a tagged user.",
       handler: &__MODULE__.stats/3
-    },
-    %{
-      name: "editbot",
-      usage: "\\editbot [field] [value]",
-      description:
-        "(admins only) Update the bot's own profile - run \\editbot with no arguments to list the fields.",
-      handler: &__MODULE__.editbot/3
     }
+    # `editbot/3` is not registered for now: RVRB answers its
+    # `PATCH /api/users/{userId}` with 401 for the bot's key. Add
+    #
+    #     %{
+    #       name: "editbot",
+    #       usage: "\\editbot [field] [value]",
+    #       description: "(admins only) Update the bot's own profile - run \\editbot with no arguments to list the fields.",
+    #       handler: &__MODULE__.editbot/3
+    #     }
+    #
+    # back here once that route takes the bot's key.
   ]
 
   # Chat-friendly field name => {RVRB `editUser` param, kind}, in the order

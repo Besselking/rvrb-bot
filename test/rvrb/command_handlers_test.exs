@@ -87,10 +87,21 @@ defmodule Rvrb.CommandHandlersTest do
   end
 
   describe "\\editbot" do
+    # Not registered for now - see `Rvrb.Commands`. The handler stays, so
+    # these call it directly.
+    test "is not a command while it is switched off" do
+      assert {:ok, _state} = handle("\\editbot bio Beep", %{"userId" => "admin-1"}, %State{})
+
+      assert_received {:chat, message}
+      assert message =~ "Unknown command"
+      refute_received {:edit_user, _, _}
+      refute "editbot" in Enum.map(Commands.commands(), & &1.name)
+    end
+
     test "edits the bot's own user, by the id found for it" do
       state = %State{bot_id: "bot-1", admins: MapSet.new(["admin-1"])}
 
-      assert {:ok, _state} = handle("\\editbot bio Beep boop", %{"userId" => "admin-1"}, state)
+      assert {:ok, _state} = Commands.editbot("bio Beep boop", %{"userId" => "admin-1"}, state)
 
       assert_received {:edit_user, "bot-1", %{bio: "Beep boop"}}
       assert_received {:chat, "Setting the bot's bio to Beep boop"}
@@ -99,7 +110,7 @@ defmodule Rvrb.CommandHandlersTest do
     test "turns away someone who is not an admin" do
       state = %State{bot_id: "bot-1", admins: MapSet.new(["admin-1"])}
 
-      assert {:ok, _state} = handle("\\editbot bio Beep", %{"userId" => "someone"}, state)
+      assert {:ok, _state} = Commands.editbot("bio Beep", %{"userId" => "someone"}, state)
 
       refute_received {:edit_user, _, _}
       assert_received {:chat, "Sorry, you're not allowed to change the bot's profile"}
@@ -107,7 +118,7 @@ defmodule Rvrb.CommandHandlersTest do
 
     test "turns everyone away while the channel's admins are not known yet" do
       assert {:ok, _state} =
-               handle("\\editbot bio Beep", %{"userId" => "admin-1"}, %State{bot_id: "bot-1"})
+               Commands.editbot("bio Beep", %{"userId" => "admin-1"}, %State{bot_id: "bot-1"})
 
       refute_received {:edit_user, _, _}
     end
