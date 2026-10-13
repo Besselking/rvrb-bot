@@ -2,6 +2,7 @@ defmodule Rvrb.WebSocket do
   alias Rvrb.Api
   alias Rvrb.AutoVote
   alias Rvrb.Commands
+  alias Rvrb.DjRestore
   alias Rvrb.PlayWriter
   alias Rvrb.WebSocket.State
   use Fresh
@@ -402,6 +403,7 @@ defmodule Rvrb.WebSocket do
          starred: false,
          dopes: [],
          stars: [],
+         plays: state.plays + 1,
          current_track: track,
          current_track_started_at: System.monotonic_time(:millisecond)
      }}
@@ -450,7 +452,25 @@ defmodule Rvrb.WebSocket do
       Logger.info("\t #{Rvrb.User.get_name(users, dj)} joined")
     end
 
-    state = %{state | djs: djs}
+    {dropped, restored} =
+      DjRestore.update(
+        state.dropped,
+        current_djs,
+        djs,
+        state.plays,
+        System.monotonic_time(:millisecond),
+        ignored_ids(state)
+      )
+
+    # Someone who dropped out and is back inside the window goes back to
+    # their spot. RVRB answers with an `updateChannelDjs` of the new order,
+    # which changes nobody's membership, so it does not come round again.
+    if restored != djs do
+      Logger.info("restoring a returning DJ: #{inspect(djs)} => #{inspect(restored)}")
+      Rvrb.Socket.impl().update_djs(state.channel_id, restored)
+    end
+
+    state = %{state | djs: djs, dropped: dropped}
 
     # A DJ leaving can complete a unanimous vote, and one joining can break
     # it, so the queue that just changed gets re-checked against the votes
@@ -536,6 +556,10 @@ defmodule Rvrb.WebSocket do
   end
 
   defp find_bot_id(_users, %{bot_id: current}), do: current
+
+  # The bots' ids: their place in the queue is not worth keeping.
+  defp ignored_ids(%{bot_id: nil, bots: bots}), do: bots
+  defp ignored_ids(%{bot_id: bot_id, bots: bots}), do: MapSet.put(bots, bot_id)
 
   # `message[outer][inner]`, or nil when `outer` isn't an object.
   defp get_in_map(message, outer, inner) do

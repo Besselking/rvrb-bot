@@ -29,6 +29,8 @@ defmodule Rvrb.WebSocket.State do
           bot_user_name: String.t() | nil,
           bot_id: String.t() | nil,
           admins: MapSet.t(String.t()),
+          plays: non_neg_integer(),
+          dropped: Rvrb.DjRestore.dropped(),
           replaced: boolean()
         }
 
@@ -67,6 +69,11 @@ defmodule Rvrb.WebSocket.State do
             # and creators in the channel's `roles`. Empty until the first
             # read of the channel lands, so nobody is an admin by default.
             admins: MapSet.new(),
+            # How many tracks have started since the bot connected, and who
+            # recently dropped out of the DJ queue and from which spot, so
+            # `Rvrb.DjRestore` can put them back if they return soon.
+            plays: 0,
+            dropped: %{},
             # True once RVRB sent `closed` with reason 1: another client of
             # the bot's account connected and took this connection's place.
             # Reconnecting would only take it back and start a tug of war,

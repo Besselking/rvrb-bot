@@ -362,6 +362,52 @@ defmodule Rvrb.WebSocketTest do
       assert_received {:send_message, %{method: "vote", params: %{dope: true}}}
     end
 
+    test "puts a DJ who drops out and returns back in their spot" do
+      {:ok, state} =
+        handle(
+          djs(["dj-a", "dj-b", "dj-c", "dj-d"]),
+          %State{channel_id: "chan-1", djs: ["dj-a", "dj-b", "dj-c", "dj-d"]}
+          |> Map.put(:djs, ["dj-a", "dj-b", "dj-c", "dj-d"])
+        )
+
+      assert state.dropped == %{}
+
+      {:ok, state} = handle(djs(["dj-a", "dj-b", "dj-d"]), state)
+      assert %{"dj-c" => %{position: 2}} = state.dropped
+      refute_received {:update_djs, _, _}
+
+      {:ok, state} = handle(djs(["dj-a", "dj-b", "dj-d", "dj-c"]), state)
+      assert_received {:update_djs, "chan-1", ["dj-a", "dj-b", "dj-c", "dj-d"]}
+      assert state.dropped == %{}
+      assert state.djs == ["dj-a", "dj-b", "dj-d", "dj-c"]
+    end
+
+    test "moves them up for the tracks played while they were away" do
+      state = %State{channel_id: "chan-1", djs: ["dj-a", "dj-b", "dj-c", "dj-d"]}
+      {:ok, state} = handle(djs(["dj-a", "dj-b", "dj-d"]), state)
+
+      # One track started while they were away.
+      state = %{state | plays: 1}
+
+      {:ok, _state} = handle(djs(["dj-b", "dj-d", "dj-a", "dj-c"]), state)
+      assert_received {:update_djs, "chan-1", ["dj-b", "dj-c", "dj-d", "dj-a"]}
+    end
+
+    test "leaves the queue alone when the returning DJ is already in their spot" do
+      state = %State{channel_id: "chan-1", djs: ["dj-a", "dj-b"]}
+      {:ok, state} = handle(djs(["dj-a"]), state)
+      {:ok, _state} = handle(djs(["dj-a", "dj-b"]), state)
+
+      refute_received {:update_djs, _, _}
+    end
+
+    test "does not keep a spot for the bot" do
+      state = %State{channel_id: "chan-1", djs: ["dj-a", "bot-self", "dj-b"], bot_id: "bot-self"}
+      {:ok, state} = handle(djs(["dj-a", "dj-b"]), state)
+
+      assert state.dropped == %{}
+    end
+
     # The votes we hold belong to the track that just ended, so a rotation
     # must not turn them into a vote on the next one.
     test "drops the votes it was holding when the decks rotate" do
@@ -421,6 +467,7 @@ defmodule Rvrb.WebSocketTest do
       refute new_state.doped
       refute new_state.starred
       assert new_state.current_track == track
+      assert new_state.plays == 1
       assert is_integer(new_state.current_track_started_at)
     end
   end
