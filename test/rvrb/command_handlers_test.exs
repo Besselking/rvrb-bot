@@ -151,7 +151,7 @@ defmodule Rvrb.CommandHandlersTest do
       assert {:ok, _state} = handle("\\spin", %{}, %State{current_track: track})
       assert_received {:chat, message}
       assert message =~ "https://img/cover.jpg"
-      assert message =~ "circular spin"
+      assert message =~ "rounded-full spin"
     end
   end
 
