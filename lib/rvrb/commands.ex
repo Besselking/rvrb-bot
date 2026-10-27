@@ -376,7 +376,7 @@ defmodule Rvrb.Commands do
 
   defp spin_html(url) do
     "<span class=\"image-container\">
-      <img class=\"ui image rounded-full spin\" src=\"#{Html.escape(url)}\"/>
+      <img class=\"ui image rounded-full fa-spin\" src=\"#{Html.escape(url)}\"/>
     </span>"
   end
 
