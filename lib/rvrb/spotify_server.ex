@@ -106,42 +106,70 @@ defmodule Rvrb.SpotifyServer do
   @doc "Use the credentials to access the Spotify API through the library"
   def track(id) do
     credentials = get_auth()
-    {:ok, track} = request(fn -> Spotify.Track.get_track(credentials, id) end)
+
+    {:ok, track} =
+      credentials |> get(Spotify.Track.get_track_url(id)) |> Spotify.Track.handle_response()
+
     track
   end
 
   def album_tracks(id) do
     credentials = get_auth()
-    {:ok, album_tracks} = request(fn -> Spotify.Album.get_album_tracks(credentials, id) end)
+
+    {:ok, album_tracks} =
+      credentials
+      |> get(Spotify.Album.get_album_tracks_url(id))
+      |> Spotify.Album.handle_response()
+
     ids = album_tracks.items |> Enum.map(& &1.id) |> Enum.join(",")
-    {:ok, tracks} = request(fn -> Spotify.Track.get_tracks(credentials, ids: ids) end)
+
+    {:ok, tracks} =
+      credentials
+      |> get(Spotify.Track.get_tracks_url(ids: ids))
+      |> Spotify.Track.handle_response()
+
     tracks
   end
 
   def artist(id) do
     credentials = get_auth()
-    {:ok, artist} = request(fn -> Spotify.Artist.get_artist(credentials, id) end)
+
+    {:ok, artist} =
+      credentials |> get(Spotify.Artist.get_artist_url(id)) |> Spotify.Artist.handle_response()
+
     artist
   end
 
-  # HTTPoison reuses pooled connections, and Spotify closes idle ones, so the
-  # first request after a quiet spell can come back `{:error, :closed}` (or
-  # similar) even though the service is fine. Retrying picks up a fresh
-  # connection; anything that isn't a connection-level failure is returned as is.
+  # HTTPoison reuses pooled connections, and Spotify closes idle ones, so a
+  # request can come back `{:error, :closed}` (or similar) even though the
+  # service is fine. Retrying through the same pool just checks out another
+  # connection that may be just as stale, so retries bypass the pool and
+  # open a fresh connection. Anything that isn't a connection-level failure
+  # is returned as is.
   @max_retries 2
   @transient_errors [:closed, :timeout, :econnrefused, :econnreset, :connect_timeout]
 
-  defp request(fun, retries_left \\ @max_retries) do
-    case fun.() do
-      {:error, reason} = error ->
-        if transient?(reason) and retries_left > 0 do
-          request(fun, retries_left - 1)
-        else
-          error
-        end
+  defp get(credentials, url) do
+    case Spotify.Client.get(credentials, url) do
+      {:error, error} = result ->
+        if transient?(error), do: retry_get(credentials, url, @max_retries), else: result
 
-      other ->
-        other
+      result ->
+        result
+    end
+  end
+
+  defp retry_get(credentials, url, retries_left) do
+    headers = Spotify.Client.get_headers(credentials)
+
+    case HTTPoison.get(url, headers, hackney: [pool: false]) do
+      {:error, error} = result ->
+        if transient?(error) and retries_left > 1,
+          do: retry_get(credentials, url, retries_left - 1),
+          else: result
+
+      result ->
+        result
     end
   end
 
@@ -314,7 +342,7 @@ defmodule Rvrb.SpotifyServer do
   end
 
   defp get_json(credentials, url) do
-    case request(fn -> Spotify.Client.get(credentials, url) end) do
+    case get(credentials, url) do
       {:ok, %HTTPoison.Response{status_code: code, body: body}} when code in 200..299 ->
         {:ok, JSON.decode!(body)}
 
