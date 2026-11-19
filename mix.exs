@@ -42,17 +42,13 @@ defmodule Rvrb.MixProject do
       {:ecto_sql, "~> 3.14"},
       # Already here transitively (spotify_ex -> httpoison), but
       # `Rvrb.Wikipedia.Api` calls it directly, so it's named here rather
-      # than borrowed. The version has to stay inside spotify_ex's `~> 1.0`.
-      {:httpoison, "~> 1.8"},
+      # than borrowed. spotify_ex asks for `~> 1.0`; it only uses the
+      # `HTTPoison.get/post/put/delete` calls and `%HTTPoison.Response{}`
+      # that 3.x keeps, so the requirement is overridden to get hackney 4
+      # (stale pooled connections, plus the CVEs fixed in it).
+      {:httpoison, "~> 3.0", override: true},
       {:postgrex, "~> 0.22"},
       {:timex, "~> 3.7.11"},
-      # `mix deps.get` still flags hackney (transitive: spotify_ex ->
-      # httpoison -> hackney, and timex -> tzdata -> hackney) for four CVEs.
-      # There is no fixed release to bump toward, and httpoison is pinned at
-      # `~> 1.0` by spotify_ex, so this waits on upstream. All four are about
-      # outbound request handling - CRLF injection, SSRF allowlist bypass,
-      # SOCKS5 timeouts - and the only requests we make are to URLs built
-      # from Spotify's own API responses, never from chat input.
       {:spotify_ex, "~> 2.4"}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
