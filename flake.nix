@@ -38,7 +38,7 @@
           pname = "rvrb-deps";
           inherit version;
           src = ./.;
-          hash = "sha256-2hH62w1NeqRM3dBQvi+sNwvh/+mWJIE23hr9oAJOSkU=";
+          hash = "sha256-u/xSHvDj2gAoQFmGKHf892E4dBka7uswOxgclOvwL6A=";
         };
       in
       {
