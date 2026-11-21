@@ -424,18 +424,7 @@ defmodule Rvrb.Commands do
   def artist(_args, _params, state) do
     case state.current_track["artists"] do
       artists when is_list(artists) and artists != [] ->
-        infos = Enum.map(artists, &AiAnalyzer.analyze/1)
-
-        table =
-          Html.table(Enum.map(infos, &artist_row/1), [
-            {:artist, "Artist"},
-            {:genres, "Genres"},
-            {:popularity, "Popularity"},
-            {:followers, "Followers"},
-            {:ai_verdict, "AI spam guess"}
-          ])
-
-        chat(table <> wikipedia_notes(infos))
+        chat(artist_report(artists))
 
       _no_track ->
         chat("No track is currently playing.")
@@ -443,6 +432,76 @@ defmodule Rvrb.Commands do
 
     {:ok, state}
   end
+
+  # Two halves that fail apart: what Spotify knows about each artist, and
+  # what Wikipedia says about them. Only the first needs Spotify, because
+  # the names the second works from come off the track RVRB is already
+  # playing - so a host that can't reach api.spotify.com costs the table
+  # and nothing else. It is also the half that has actually been down,
+  # which is why they're no longer chained: see `Rvrb.SpotifyError`.
+  defp artist_report(artists) do
+    results = Enum.map(artists, &analyze_artist/1)
+
+    infos = for {:ok, info} <- results, do: info
+    missing = for {:error, name} <- results, do: name
+
+    spotify_section(infos, missing) <> wikipedia_notes(artist_names(artists))
+  end
+
+  # RVRB passes Spotify's track object through, so every artist on it
+  # already carries a name - `Rvrb.PlayTracker.track_attrs/2` reads them
+  # the same way. One arriving without is skipped rather than looked up
+  # as "", which would match an article nobody asked about.
+  defp artist_names(artists) do
+    artists
+    |> Enum.map(& &1["name"])
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+  end
+
+  # Per artist, so one id Spotify won't answer for doesn't cost the whole
+  # table. Handlers run in the connection process rather than in a task,
+  # so this is an ordinary rescue - unlike `controversies/1` below.
+  defp analyze_artist(artist) do
+    {:ok, AiAnalyzer.analyze(artist)}
+  rescue
+    error ->
+      log_spotify_failure(artist, Exception.format(:error, error, __STACKTRACE__))
+  catch
+    kind, reason ->
+      log_spotify_failure(artist, Exception.format(kind, reason, __STACKTRACE__))
+  end
+
+  defp log_spotify_failure(artist, formatted) do
+    name = artist["name"]
+    Logger.warning("Spotify lookup for #{inspect(name)} failed:\n#{formatted}")
+    {:error, name || "an artist"}
+  end
+
+  # Nothing from Spotify at all, which is the shape a blocked host takes:
+  # say so, rather than printing a header row over no rows and letting it
+  # read as an artist with no genres and no followers.
+  defp spotify_section([], _missing), do: spotify_alert("Spotify didn't answer")
+
+  defp spotify_section(infos, missing) do
+    table =
+      Html.table(Enum.map(infos, &artist_row/1), [
+        {:artist, "Artist"},
+        {:genres, "Genres"},
+        {:popularity, "Popularity"},
+        {:followers, "Followers"},
+        {:ai_verdict, "AI spam guess"}
+      ])
+
+    table <> missing_note(missing)
+  end
+
+  # Names come off the track, so they're escaped on the way in here.
+  defp missing_note([]), do: ""
+
+  defp missing_note(names),
+    do: spotify_alert("Spotify didn't answer for #{Enum.map_join(names, ", ", &Html.escape/1)}")
+
+  defp spotify_alert(text), do: "<span class=\"alert\">⚠️ #{text}.</span>"
 
   defp artist_row(%{ai_verdict: %{label: verdict_label}} = info) do
     %{
@@ -479,13 +538,14 @@ defmodule Rvrb.Commands do
   # in time simply doesn't get a section.
   @wikipedia_timeout :timer.seconds(10)
 
-  # What Wikipedia has on each artist, under the table. Artists it has
+  # What Wikipedia has on each artist, under the table, from the names on
+  # the track rather than anything Spotify returned. Artists it has
   # nothing on - which is most of them - contribute nothing at all, and a
   # track where that's true of everybody leaves the table exactly as it
   # was.
-  defp wikipedia_notes(infos) do
-    infos
-    |> Task.async_stream(&controversies(&1.name),
+  defp wikipedia_notes(names) do
+    names
+    |> Task.async_stream(&controversies/1,
       timeout: @wikipedia_timeout,
       on_timeout: :kill_task,
       ordered: true

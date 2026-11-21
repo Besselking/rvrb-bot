@@ -38,6 +38,23 @@ defmodule Rvrb.CommandHandlersTest do
     def refresh_admins(channel_id), do: send(self(), {:refresh_admins, channel_id})
   end
 
+  # `Rvrb.Wikipedia.Api` stand-in with canned answers for one artist
+  # Wikipedia has something quotable about and nobody else. Hardcoded
+  # rather than read from the process dictionary: the lookups run in
+  # `Task.async_stream`, so a stub that answers from the caller's process
+  # would find nothing there.
+  defmodule WikipediaStub do
+    def page("Nova"), do: {:ok, %{title: "Nova", categories: ["American singers"]}}
+    def page(_title), do: :missing
+
+    def search(_name, _limit), do: {:ok, []}
+
+    def extract("Nova"),
+      do: {:ok, "Nova is an American singer. She was convicted of racketeering in 2021."}
+
+    def extract(_title), do: :error
+  end
+
   setup do
     # `\qg` calls into the GenreServer, which the application doesn't start
     # in test - see `Rvrb.Application.start/2`.
@@ -281,6 +298,62 @@ defmodule Rvrb.CommandHandlersTest do
     test "leaves non-commands alone" do
       assert Commands.handle("just chatting", %{}, %{}) == :not_a_command
     end
+  end
+
+  describe "\\artist" do
+    setup do
+      previous = Application.get_env(:rvrb, :wikipedia_api)
+      Application.put_env(:rvrb, :wikipedia_api, WikipediaStub)
+
+      on_exit(fn ->
+        case previous do
+          nil -> Application.delete_env(:rvrb, :wikipedia_api)
+          module -> Application.put_env(:rvrb, :wikipedia_api, module)
+        end
+      end)
+    end
+
+    # `Rvrb.SpotifyServer` isn't started in test, so every lookup through
+    # it fails - which is the same thing a host that can't reach
+    # api.spotify.com gets, and the case this command used to die on.
+    test "keeps the Wikipedia section when Spotify can't be reached" do
+      assert {:ok, _state} = handle("\\artist", %{}, playing(["Nova"]))
+
+      assert_received {:chat, message}
+      assert message =~ "Spotify didn't answer"
+      assert message =~ "Wikipedia mentions"
+      assert message =~ "<strong>convicted</strong>"
+    end
+
+    test "says only that Spotify is unavailable when Wikipedia has nothing either" do
+      assert {:ok, _state} = handle("\\artist", %{}, playing(["Someone Nobody Covers"]))
+
+      assert_received {:chat, message}
+      assert message =~ "Spotify didn't answer"
+      refute message =~ "Wikipedia mentions"
+    end
+
+    test "looks up every artist credited on the track" do
+      assert {:ok, _state} = handle("\\artist", %{}, playing(["Someone Nobody Covers", "Nova"]))
+
+      assert_received {:chat, message}
+      assert message =~ "<strong>convicted</strong>"
+    end
+
+    test "says so when nothing is playing" do
+      assert {:ok, _state} = handle("\\artist", %{}, %State{})
+
+      assert_received {:chat, message}
+      assert message =~ "No track is currently playing."
+    end
+  end
+
+  # A `playChannelTrack` payload crediting `names`, which RVRB carries
+  # ids and names for alike - see `Rvrb.PlayTracker.track_attrs/2`.
+  defp playing(names) do
+    artists = Enum.map(names, &%{"id" => "id-" <> &1, "name" => &1})
+
+    %State{current_track: %{"artists" => artists}}
   end
 
   # Handlers log as they go; swallow that so the suite stays readable, and

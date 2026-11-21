@@ -156,7 +156,7 @@ defmodule Rvrb.Wikipedia do
   `api` is the module the requests go through, so a test can hand this a
   stub instead of reaching the network.
   """
-  def controversies(artist_name, api \\ Api)
+  def controversies(artist_name, api \\ api())
 
   def controversies(artist_name, api) when is_binary(artist_name) do
     case article(artist_name, api) do
@@ -180,6 +180,17 @@ defmodule Rvrb.Wikipedia do
         :error
     end
   end
+
+  @doc """
+  The module the requests go through, `Rvrb.Wikipedia.Api` unless `:rvrb,
+  :wikipedia_api` overrides it.
+
+  The same seam `Rvrb.Socket` gives the websocket, and for the same
+  reason: `\\artist` reaches Wikipedia through `Rvrb.Wikipedia.Cache`,
+  which passes no `:api` of its own, so without this there is no way to
+  exercise that command without reaching the network.
+  """
+  def api, do: Application.get_env(:rvrb, :wikipedia_api, Api)
 
   @doc "The public article URL for `title`."
   def article_url(title), do: @article_base <> URI.encode(String.replace(title, " ", "_"))
