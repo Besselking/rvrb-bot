@@ -1,6 +1,8 @@
 defmodule Rvrb.SpotifyServer do
   @moduledoc "This module uses an `Agent` to persist the tokens"
 
+  alias Rvrb.SpotifyError
+
   # spotify_ex's `Credentials` struct has no expiry field, and
   # `Spotify.AuthenticationClient.post/1` discards the `expires_in` Spotify
   # returns, so there's no way to ask the library "is this token still
@@ -107,38 +109,59 @@ defmodule Rvrb.SpotifyServer do
   def track(id) do
     credentials = get_auth()
 
-    {:ok, track} =
-      credentials |> get(Spotify.Track.get_track_url(id)) |> Spotify.Track.handle_response()
-
-    track
+    credentials
+    |> get(Spotify.Track.get_track_url(id))
+    |> Spotify.Track.handle_response()
+    |> unwrap!("track #{id}")
   end
 
   def album_tracks(id) do
     credentials = get_auth()
 
-    {:ok, album_tracks} =
+    album_tracks =
       credentials
       |> get(Spotify.Album.get_album_tracks_url(id))
       |> Spotify.Album.handle_response()
+      |> unwrap!("album tracks for #{id}")
 
     ids = album_tracks.items |> Enum.map(& &1.id) |> Enum.join(",")
 
-    {:ok, tracks} =
-      credentials
-      |> get(Spotify.Track.get_tracks_url(ids: ids))
-      |> Spotify.Track.handle_response()
-
-    tracks
+    credentials
+    |> get(Spotify.Track.get_tracks_url(ids: ids))
+    |> Spotify.Track.handle_response()
+    |> unwrap!("tracks on album #{id}")
   end
 
   def artist(id) do
     credentials = get_auth()
 
-    {:ok, artist} =
-      credentials |> get(Spotify.Artist.get_artist_url(id)) |> Spotify.Artist.handle_response()
-
-    artist
+    credentials
+    |> get(Spotify.Artist.get_artist_url(id))
+    |> Spotify.Artist.handle_response()
+    |> unwrap!("artist #{id}")
   end
+
+  # The reads above want an answer or nothing, so the `{:error, reason}`
+  # every non-answer arrives as becomes a `Rvrb.SpotifyError` naming the
+  # request rather than a `MatchError` naming the tuple. Still a raise,
+  # so `Rvrb.Commands.run/5` keeps it off the connection either way - the
+  # difference is only in what the log says afterwards.
+
+  # A 4xx arrives as `{:ok, decoded_body}`: `Spotify.Responder` keeps
+  # `{:error, _}` for a request that never completed, and hands anything
+  # the API answered to the caller either way. So a stale id or a 429
+  # would otherwise pass for an artist here and fail further along on a
+  # key that isn't there. Spotify's error bodies all carry `"error"`,
+  # which is what tells those apart from a decoded success.
+  defp unwrap!({:ok, %{"error" => error}}, request),
+    do: raise(SpotifyError, reason: error, request: request)
+
+  defp unwrap!({:ok, value}, _request), do: value
+
+  defp unwrap!({:error, reason}, request),
+    do: raise(SpotifyError, reason: reason, request: request)
+
+  defp unwrap!(other, request), do: raise(SpotifyError, reason: other, request: request)
 
   # HTTPoison reuses pooled connections, and Spotify closes idle ones, so a
   # request can come back `{:error, :closed}` (or similar) even though the
